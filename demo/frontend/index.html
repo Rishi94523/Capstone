@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PoUW CAPTCHA Demo</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+          'Helvetica Neue', Arial, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+
+      .container {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        padding: 40px;
+        width: 100%;
+        max-width: 450px;
+      }
+
+      h1 {
+        color: #1f2937;
+        font-size: 24px;
+        margin-bottom: 8px;
+        text-align: center;
+      }
+
+      .subtitle {
+        color: #6b7280;
+        text-align: center;
+        margin-bottom: 32px;
+        font-size: 14px;
+      }
+
+      .form-group {
+        margin-bottom: 20px;
+      }
+
+      label {
+        display: block;
+        color: #374151;
+        font-size: 14px;
+        font-weight: 500;
+        margin-bottom: 6px;
+      }
+
+      input {
+        width: 100%;
+        padding: 12px 16px;
+        font-size: 14px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        transition:
+          border-color 0.2s,
+          box-shadow 0.2s;
+      }
+
+      input:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+      }
+
+      .captcha-container {
+        margin: 24px 0;
+        min-height: 80px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      button[type='submit'] {
+        width: 100%;
+        padding: 14px;
+        font-size: 16px;
+        font-weight: 600;
+        color: white;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        transition:
+          transform 0.2s,
+          box-shadow 0.2s;
+      }
+
+      button[type='submit']:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+      }
+
+      button[type='submit']:active {
+        transform: translateY(0);
+      }
+
+      button[type='submit']:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .result {
+        margin-top: 24px;
+        padding: 16px;
+        border-radius: 8px;
+        display: none;
+      }
+
+      .result.success {
+        display: block;
+        background: #ecfdf5;
+        border: 1px solid #10b981;
+        color: #065f46;
+      }
+
+      .result.error {
+        display: block;
+        background: #fef2f2;
+        border: 1px solid #ef4444;
+        color: #991b1b;
+      }
+
+      .info {
+        margin-top: 32px;
+        padding-top: 24px;
+        border-top: 1px solid #e5e7eb;
+      }
+
+      .info h3 {
+        font-size: 14px;
+        color: #374151;
+        margin-bottom: 12px;
+      }
+
+      .info ul {
+        list-style: none;
+        font-size: 13px;
+        color: #6b7280;
+      }
+
+      .info li {
+        padding: 6px 0;
+        padding-left: 20px;
+        position: relative;
+      }
+
+      .info li::before {
+        content: '✓';
+        position: absolute;
+        left: 0;
+        color: #10b981;
+      }
+
+      .footer {
+        margin-top: 20px;
+        text-align: center;
+        color: rgba(255, 255, 255, 0.8);
+        font-size: 13px;
+      }
+
+      .footer a {
+        color: white;
+        text-decoration: none;
+      }
+
+      .footer a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>PoUW CAPTCHA Demo</h1>
+      <p class="subtitle">Proof-of-Useful-Work Security Verification</p>
+
+      <form id="demo-form">
+        <div class="form-group">
+          <label for="email">Email Address</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            placeholder="you@example.com"
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="name">Full Name</label>
+          <input
+            type="text"
+            id="name"
+            name="name"
+            placeholder="John Doe"
+            required
+          />
+        </div>
+
+        <div class="captcha-container" id="pouw-captcha">
+          <!-- PoUW CAPTCHA Widget will be rendered here -->
+          <p style="color: #6b7280; font-size: 13px">Loading CAPTCHA...</p>
+        </div>
+
+        <button type="submit" id="submit-btn" disabled>Submit Form</button>
+      </form>
+
+      <div class="result" id="result"></div>
+
+      <div class="info">
+        <h3>How it works:</h3>
+        <ul>
+          <li>Your browser runs ML inference instead of puzzles</li>
+          <li>Computation is useful for training AI models</li>
+          <li>No distorted images or audio challenges</li>
+          <li>Privacy-preserving by design</li>
+          <li>Fully accessible for all users</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="footer">
+      Powered by <a href="https://pouw.dev">PoUW CAPTCHA</a> |
+      <a href="https://pouw.dev/privacy">Privacy Policy</a>
+    </p>
+
+    <!-- PoUW CAPTCHA Widget Script -->
+    <script>
+      // Configuration
+      const POUW_CONFIG = {
+        apiUrl: 'http://localhost:8000/api/v1',
+        siteKey: 'pk_demo_1234567890',
+      };
+
+      // Initialize when DOM is ready
+      document.addEventListener('DOMContentLoaded', function () {
+        initializeCaptcha();
+      });
+
+      let captchaToken = null;
+
+      async function initializeCaptcha() {
+        const container = document.getElementById('pouw-captcha');
+        const submitBtn = document.getElementById('submit-btn');
+
+        try {
+          // Create simple CAPTCHA UI
+          container.innerHTML = `
+                    <div style="
+                        background: #f9fafb;
+                        border: 1px solid #e5e7eb;
+                        border-radius: 8px;
+                        padding: 16px;
+                        width: 100%;
+                        text-align: center;
+                    ">
+                        <button type="button" id="verify-btn" style="
+                            background: #667eea;
+                            color: white;
+                            border: none;
+                            padding: 12px 24px;
+                            border-radius: 6px;
+                            font-size: 14px;
+                            cursor: pointer;
+                        ">
+                            🛡️ Verify I'm Human
+                        </button>
+                        <p id="captcha-status" style="
+                            margin-top: 12px;
+                            font-size: 13px;
+                            color: #6b7280;
+                        ">
+                            Click to start security verification
+                        </p>
+                    </div>
+                `;
+
+          document
+            .getElementById('verify-btn')
+            .addEventListener('click', runCaptcha);
+        } catch (error) {
+          console.error('Failed to initialize CAPTCHA:', error);
+          container.innerHTML = `
+                    <p style="color: #ef4444; font-size: 13px;">
+                        Failed to load CAPTCHA. Please refresh the page.
+                    </p>
+                `;
+        }
+      }
+
+      async function runCaptcha() {
+        const verifyBtn = document.getElementById('verify-btn');
+        const statusEl = document.getElementById('captcha-status');
+        const submitBtn = document.getElementById('submit-btn');
+
+        try {
+          verifyBtn.disabled = true;
+          verifyBtn.textContent = '⏳ Processing...';
+          statusEl.textContent = 'Running security check...';
+
+          // Simulate CAPTCHA flow (in production, this would use the actual widget)
+          // Step 1: Initialize session
+          statusEl.textContent = 'Initializing session...';
+          await sleep(500);
+
+          // Step 2: Load model
+          statusEl.textContent = 'Loading ML model...';
+          await sleep(800);
+
+          // Step 3: Run inference
+          statusEl.textContent = 'Running inference...';
+          await sleep(1000);
+
+          // Step 4: Submit result
+          statusEl.textContent = 'Submitting verification...';
+          await sleep(500);
+
+          // Success!
+          captchaToken = 'demo_token_' + Date.now();
+
+          verifyBtn.textContent = '✅ Verified';
+          verifyBtn.style.background = '#10b981';
+          statusEl.textContent =
+            'Verification complete! You can now submit the form.';
+          statusEl.style.color = '#10b981';
+          submitBtn.disabled = false;
+        } catch (error) {
+          console.error('CAPTCHA failed:', error);
+          verifyBtn.disabled = false;
+          verifyBtn.textContent = '🛡️ Try Again';
+          statusEl.textContent = 'Verification failed. Please try again.';
+          statusEl.style.color = '#ef4444';
+        }
+      }
+
+      function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      // Form submission
+      document
+        .getElementById('demo-form')
+        .addEventListener('submit', async function (e) {
+          e.preventDefault();
+
+          if (!captchaToken) {
+            showResult(
+              'error',
+              'Please complete the CAPTCHA verification first.'
+            );
+            return;
+          }
+
+          const formData = {
+            email: document.getElementById('email').value,
+            name: document.getElementById('name').value,
+            captchaToken: captchaToken,
+          };
+
+          // In production, you would validate the token on your backend
+          console.log('Form submitted with CAPTCHA token:', formData);
+
+          showResult(
+            'success',
+            `
+                <strong>Form submitted successfully!</strong><br>
+                <small>
+                    CAPTCHA Token: ${captchaToken.substring(0, 20)}...<br>
+                    In production, your backend would validate this token.
+                </small>
+            `
+          );
+        });
+
+      function showResult(type, message) {
+        const resultEl = document.getElementById('result');
+        resultEl.className = 'result ' + type;
+        resultEl.innerHTML = message;
+      }
+    </script>
+  </body>
+</html>
