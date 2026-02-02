@@ -14,6 +14,7 @@ import type {
   ProofOfWork,
   TimingData,
   VerificationResponse,
+  CaptchaTask,
 } from '../types';
 import { ApiClient, getClientMetadata } from './api-client';
 import { Config } from './config';
@@ -75,7 +76,10 @@ export class PoUWCaptcha {
    */
   async execute(): Promise<CaptchaResult> {
     if (this.isExecuting) {
-      throw this.createError('VALIDATION_ERROR', 'CAPTCHA is already executing');
+      throw this.createError(
+        'VALIDATION_ERROR',
+        'CAPTCHA is already executing'
+      );
     }
 
     this.isExecuting = true;
@@ -98,71 +102,22 @@ export class PoUWCaptcha {
       this.config.debug('Session initialized', {
         sessionId: this.session.sessionId,
         difficulty: this.session.difficulty,
-        taskType: this.session.task.taskType,
+        isShardTask: this.session.isShardTask(),
       });
 
-      // Step 2: Load ML model
-      this.widget.setMessage('Loading ML model...');
-      timer.start('modelLoad');
+      // Step 2-4: Execute task (ShardTask or legacy CaptchaTask)
+      let prediction: Prediction;
+      let submitResponse: import('../types').SubmitResponse;
 
-      const model = await this.mlEngine.loadModel({
-        url: this.session.task.modelUrl,
-        meta: this.session.task.modelMeta,
-      });
-
-      timer.end('modelLoad');
-      this.config.debug('Model loaded', { modelId: model.id });
-
-      // Step 3: Run inference
-      this.widget.setState('processing');
-      this.widget.setMessage('Running security check...');
-      this.widget.setProgress(0);
-
-      timer.start('inference');
-
-      // Prepare input
-      const input = await this.prepareInput(this.session.task);
-
-      // Run prediction
-      const prediction = await model.predict(input);
-      timer.end('inference');
-
-      this.session.prediction = prediction;
-      this.widget.setProgress(100);
-
-      this.config.debug('Inference complete', {
-        label: prediction.label,
-        confidence: prediction.confidence,
-      });
-
-      // Step 4: Generate proof of work
-      timer.start('pow');
-      const proofOfWork = await this.generateProofOfWork(
-        this.session.task,
-        prediction
-      );
-      timer.end('pow');
-
-      this.session.proofOfWork = proofOfWork;
-
-      // Step 5: Submit result
-      timer.end('total');
-      const timing: TimingData = {
-        modelLoadMs: timer.get('modelLoad'),
-        inferenceMs: timer.get('inference'),
-        totalMs: timer.get('total'),
-        startedAt: timer.getStartTime('total'),
-        completedAt: Date.now(),
-      };
-      this.session.timing = timing;
-
-      const submitResponse = await this.apiClient.submitPrediction(
-        this.session.sessionId,
-        this.session.task.taskId,
-        prediction,
-        proofOfWork,
-        timing
-      );
+      if (this.session.isShardTask()) {
+        // Shard-based execution flow
+        ({ prediction, submitResponse } =
+          await this.executeShardTaskFlow(timer));
+      } else {
+        // Legacy CaptchaTask flow
+        ({ prediction, submitResponse } =
+          await this.executeLegacyTaskFlow(timer));
+      }
 
       // Step 6: Handle response
       if (submitResponse.requiresVerification && submitResponse.verification) {
@@ -228,10 +183,139 @@ export class PoUWCaptcha {
   }
 
   /**
-   * Prepare input data for model
+   * Execute shard-based task flow
+   */
+  private async executeShardTaskFlow(timer: PerformanceTimer): Promise<{
+    prediction: Prediction;
+    submitResponse: import('../types').SubmitResponse;
+  }> {
+    const shardTask = this.session!.getShardTask()!;
+
+    // Step 2: Set up progress callback
+    this.widget.setState('processing');
+    this.widget.setMessage('Running security check...');
+    shardTask.onProgress = (progress) => {
+      this.widget.setProgress(progress * 100);
+    };
+
+    // Step 3: Execute shard task
+    timer.start('inference');
+    const shardResult = await this.mlEngine.executeShardTask(shardTask);
+    timer.end('inference');
+
+    const prediction = shardResult.prediction!;
+    this.session!.prediction = prediction;
+    this.widget.setProgress(100);
+
+    this.config.debug('Shard inference complete', {
+      label: prediction.label,
+      confidence: prediction.confidence,
+      layerCount: shardResult.layerOutputs.length,
+    });
+
+    // Step 4: Get proof from shard result
+    const proof = shardResult.proof;
+    this.session!.inferenceProof = proof;
+
+    // Step 5: Submit result
+    timer.end('total');
+    const timing: TimingData = {
+      modelLoadMs: 0, // Shards are loaded during execution
+      inferenceMs: timer.get('inference'),
+      totalMs: timer.get('total'),
+      startedAt: timer.getStartTime('total'),
+      completedAt: Date.now(),
+    };
+    this.session!.timing = timing;
+
+    const submitResponse = await this.apiClient.submitInferenceProof(
+      this.session!.sessionId,
+      shardTask.taskId,
+      prediction,
+      proof,
+      timing
+    );
+
+    return { prediction, submitResponse };
+  }
+
+  /**
+   * Execute legacy CaptchaTask flow
+   */
+  private async executeLegacyTaskFlow(timer: PerformanceTimer): Promise<{
+    prediction: Prediction;
+    submitResponse: import('../types').SubmitResponse;
+  }> {
+    const task = this.session!.task as CaptchaTask;
+
+    // Step 2: Load ML model
+    this.widget.setMessage('Loading ML model...');
+    timer.start('modelLoad');
+
+    const model = await this.mlEngine.loadModel({
+      url: task.modelUrl,
+      meta: task.modelMeta,
+    });
+
+    timer.end('modelLoad');
+    this.config.debug('Model loaded', { modelId: model.id });
+
+    // Step 3: Run inference
+    this.widget.setState('processing');
+    this.widget.setMessage('Running security check...');
+    this.widget.setProgress(0);
+
+    timer.start('inference');
+
+    // Prepare input
+    const input = await this.prepareInput(task);
+
+    // Run prediction
+    const prediction = await model.predict(input);
+    timer.end('inference');
+
+    this.session!.prediction = prediction;
+    this.widget.setProgress(100);
+
+    this.config.debug('Inference complete', {
+      label: prediction.label,
+      confidence: prediction.confidence,
+    });
+
+    // Step 4: Generate proof of work
+    timer.start('pow');
+    const proofOfWork = await this.generatePoWProof(task, prediction);
+    timer.end('pow');
+
+    this.session!.proofOfWork = proofOfWork;
+
+    // Step 5: Submit result
+    timer.end('total');
+    const timing: TimingData = {
+      modelLoadMs: timer.get('modelLoad'),
+      inferenceMs: timer.get('inference'),
+      totalMs: timer.get('total'),
+      startedAt: timer.getStartTime('total'),
+      completedAt: Date.now(),
+    };
+    this.session!.timing = timing;
+
+    const submitResponse = await this.apiClient.submitPrediction(
+      this.session!.sessionId,
+      task.taskId,
+      prediction,
+      proofOfWork,
+      timing
+    );
+
+    return { prediction, submitResponse };
+  }
+
+  /**
+   * Prepare input data for model (legacy CaptchaTask only)
    */
   private async prepareInput(
-    task: CaptchaSession['task']
+    task: CaptchaTask
   ): Promise<Float32Array | ImageData | string> {
     if (task.sampleType === 'image') {
       // Decode base64 image
@@ -301,10 +385,10 @@ export class PoUWCaptcha {
   }
 
   /**
-   * Generate proof of work hash
+   * Generate proof of work hash (legacy CaptchaTask)
    */
-  private async generateProofOfWork(
-    task: CaptchaSession['task'],
+  private async generatePoWProof(
+    task: CaptchaTask,
     prediction: Prediction
   ): Promise<ProofOfWork> {
     return generatePoWHash({
@@ -454,5 +538,19 @@ export class PoUWCaptcha {
         this.config.error(`Callback ${name} error:`, error);
       }
     }
+  }
+
+  /**
+   * Dispose the CAPTCHA instance and cleanup resources
+   */
+  dispose(): void {
+    if (this.session) {
+      this.session.dispose();
+      this.session = null;
+    }
+    if (this.mlEngine) {
+      this.mlEngine.dispose();
+    }
+    this.widget.destroy();
   }
 }

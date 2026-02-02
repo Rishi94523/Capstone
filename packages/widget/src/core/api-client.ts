@@ -3,7 +3,6 @@
  */
 
 import type {
-  CaptchaTask,
   InitResponse,
   Prediction,
   ProofOfWork,
@@ -11,6 +10,7 @@ import type {
   TimingData,
   VerificationResponse,
   VerifyResponse,
+  InferenceProof,
 } from '../types';
 import { Config } from './config';
 
@@ -107,6 +107,48 @@ export class ApiClient {
     });
 
     return result;
+  }
+
+  /**
+   * Submit inference proof result (replaces submitPrediction for shard-based verification)
+   */
+  async submitInferenceProof(
+    sessionId: string,
+    taskId: string,
+    prediction: Prediction,
+    proof: InferenceProof,
+    timing: TimingData
+  ): Promise<SubmitResponse> {
+    const response = await this.request<SubmitResponse>('/captcha/submit', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_id: sessionId,
+        task_id: taskId,
+        prediction: {
+          label: prediction.label,
+          confidence: prediction.confidence,
+          top_k: prediction.topK,
+        },
+        proof: {
+          task_id: proof.taskId,
+          sample_id: proof.sampleId,
+          layer_count: proof.layerCount,
+          output_hashes: proof.outputHashes,
+          prediction_hash: proof.predictionHash,
+          proof_hash: proof.proofHash,
+          timestamp: proof.timestamp,
+        },
+        timing: {
+          model_load_ms: timing.modelLoadMs,
+          inference_ms: timing.inferenceMs,
+          total_ms: timing.totalMs,
+          started_at: timing.startedAt,
+          completed_at: timing.completedAt,
+        },
+      }),
+    });
+
+    return response;
   }
 
   /**
@@ -216,7 +258,11 @@ export class ApiError extends Error {
   public readonly status: number;
   public readonly details: Record<string, unknown>;
 
-  constructor(status: number, message: string, details: Record<string, unknown>) {
+  constructor(
+    status: number,
+    message: string,
+    details: Record<string, unknown>
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;

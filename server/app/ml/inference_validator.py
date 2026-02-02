@@ -1,37 +1,71 @@
 """
-Inference Validator for validating client predictions.
+Inference Validator for validating client predictions and shard outputs.
+
+This module validates both traditional full-model predictions and
+shard-based inference outputs against pre-computed ground truth.
 """
 
 import logging
 import hashlib
+import json
 import random
-from typing import Optional
-
+from typing import Optional, Dict, List, Tuple, Any
+from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 from redis.asyncio import Redis
 
 from app.config import get_settings
 from app.models import Task, Session, Prediction
 from app.schemas import PredictionData, ProofOfWorkData, TimingData
+from app.ml.ground_truth_cache import get_ground_truth_cache, GroundTruthCache
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+@dataclass
+class ShardValidationResult:
+    """Result of validating a shard output."""
+    is_valid: bool
+    layer_name: str
+    confidence: float
+    error_message: Optional[str] = None
+    expected_hash: Optional[str] = None
+    actual_hash: Optional[str] = None
+
+
+@dataclass
+class InferenceProof:
+    """Proof of inference computation from client."""
+    input_hash: str
+    output_hash: str
+    layer_outputs: Dict[str, List[float]]  # layer_name -> output values
+    final_prediction: Optional[int] = None
+    computation_time_ms: int = 0
+
+
 class InferenceValidator:
     """
-    Validates client inference results.
+    Validates client inference results including shard-based computation.
 
     Responsibilities:
     - Validate prediction plausibility
-    - Verify proof of work
+    - Verify proof of work / inference proof
     - Check timing constraints
     - Validate known sample predictions
+    - Validate shard outputs against ground truth
     """
 
     def __init__(self, db: AsyncSession, redis: Redis):
         self.db = db
         self.redis = redis
+        self._ground_truth_cache: Optional[GroundTruthCache] = None
+
+    async def _get_ground_truth_cache(self) -> GroundTruthCache:
+        """Lazy initialization of ground truth cache."""
+        if self._ground_truth_cache is None:
+            self._ground_truth_cache = await get_ground_truth_cache()
+        return self._ground_truth_cache
 
     async def validate_prediction(
         self,
@@ -75,6 +109,129 @@ class InferenceValidator:
 
         return is_valid
 
+    async def validate_shard_inference(
+        self,
+        task: Task,
+        inference_proof: InferenceProof,
+        timing: TimingData,
+    ) -> Tuple[bool, List[ShardValidationResult]]:
+        """
+        Validate shard-based inference output.
+
+        Args:
+            task: The assigned task
+            inference_proof: Proof of computation from client
+            timing: Timing information
+
+        Returns:
+            Tuple of (all_valid, list_of_results)
+        """
+        results = []
+        all_valid = True
+
+        # Validate timing
+        timing_valid = self._validate_timing(task, timing)
+        if not timing_valid:
+            all_valid = False
+
+        # Get task metadata
+        task_metadata = task.metadata_ or {}
+        shard_task_data = task_metadata.get("shard_task", {})
+        model_name = shard_task_data.get("model_name", "mnist-tiny")
+        ground_truth_key = shard_task_data.get("ground_truth_key")
+
+        if not ground_truth_key:
+            logger.error(f"Missing ground truth key for task {task.id}")
+            return False, [ShardValidationResult(
+                is_valid=False,
+                layer_name="unknown",
+                confidence=0.0,
+                error_message="Missing ground truth key"
+            )]
+
+        # Parse ground truth key to get input hash
+        parts = ground_truth_key.split(":")
+        if len(parts) < 3:
+            return False, [ShardValidationResult(
+                is_valid=False,
+                layer_name="unknown",
+                confidence=0.0,
+                error_message="Invalid ground truth key format"
+            )]
+
+        input_hash = parts[1]
+
+        # Get ground truth cache
+        cache = await self._get_ground_truth_cache()
+
+        # Validate each layer output
+        for layer_name, client_output in inference_proof.layer_outputs.items():
+            # Extract layer index from name
+            layer_index = self._extract_layer_index(layer_name)
+
+            # Validate against ground truth (simplified - just check hash match)
+            gt_entry = cache.get_ground_truth(
+                sample_id=input_hash,
+                model_name=model_name,
+                layer_index=layer_index
+            )
+
+            if gt_entry:
+                # Compute hash of client output
+                client_output_bytes = json.dumps(client_output, sort_keys=True).encode()
+                client_hash = hashlib.sha256(client_output_bytes).hexdigest()[:16]
+
+                is_valid_layer = client_hash == gt_entry.output_hash
+                confidence = 1.0 if is_valid_layer else 0.0
+
+                result = ShardValidationResult(
+                    is_valid=is_valid_layer,
+                    layer_name=layer_name,
+                    confidence=confidence,
+                    expected_hash=gt_entry.output_hash,
+                    actual_hash=client_hash
+                )
+                results.append(result)
+
+                if not is_valid_layer:
+                    all_valid = False
+                    logger.warning(
+                        f"Shard validation failed for task {task.id}, "
+                        f"layer {layer_name}: hash mismatch"
+                    )
+
+        # Validate final prediction if provided
+        if inference_proof.final_prediction is not None:
+            gt_entry = cache.get_ground_truth(
+                sample_id=input_hash,
+                model_name=model_name,
+                layer_index=-1  # Final output
+            )
+
+            if gt_entry and gt_entry.top_prediction is not None:
+                if inference_proof.final_prediction != gt_entry.top_prediction:
+                    all_valid = False
+                    logger.warning(
+                        f"Final prediction mismatch for task {task.id}: "
+                        f"predicted={inference_proof.final_prediction}, "
+                        f"expected={gt_entry.top_prediction}"
+                    )
+
+        return all_valid, results
+
+    def _extract_layer_index(self, layer_name: str) -> int:
+        """Extract layer index from layer name for ground truth lookup."""
+        layer_map = {
+            'conv1': 0,
+            'pool1': 1,
+            'conv2': 2,
+            'pool2': 3,
+            'flatten': 4,
+            'dense1': 5,
+            'output': 6,
+        }
+        return layer_map.get(layer_name.lower(), -1)
+
     def _validate_timing(self, task: Task, timing: TimingData) -> bool:
         """
         Validate timing constraints.
@@ -86,20 +243,12 @@ class InferenceValidator:
 
         # Allow some tolerance
         min_time = expected_ms * 0.1  # At least 10% of expected
-        max_time = expected_ms * 5.0  # At most 5x expected
 
         if actual_ms < min_time:
             logger.warning(
                 f"Suspiciously fast inference: {actual_ms}ms < {min_time}ms"
             )
             return False
-
-        if actual_ms > max_time:
-            logger.warning(
-                f"Inference too slow: {actual_ms}ms > {max_time}ms"
-            )
-            # Don't fail for slow, just log it
-            pass
 
         return True
 
@@ -109,24 +258,13 @@ class InferenceValidator:
 
         Verifies that the client actually performed computation.
         """
-        # Reconstruct expected hash
-        payload = ":".join([
-            pow_data.model_checksum,
-            pow_data.input_hash,
-            pow_data.output_hash,
-            str(pow_data.nonce),
-        ])
-
-        expected_prefix = "0"  # Simple difficulty
-
-        # For now, accept any valid-looking hash
-        # In production, we'd verify the hash computation
         if not pow_data.hash:
             return False
 
         if len(pow_data.hash) != 64:  # SHA-256 hex length
             return False
 
+        expected_prefix = "0"  # Simple difficulty
         if not pow_data.hash.startswith(expected_prefix):
             logger.warning(f"PoW hash doesn't meet difficulty: {pow_data.hash[:8]}...")
             return False
@@ -178,6 +316,62 @@ class InferenceValidator:
 
         return True  # Don't fail the validation, just track it
 
+    async def validate_inference_proof(
+        self,
+        task: Task,
+        inference_proof: InferenceProof
+    ) -> bool:
+        """
+        Validate inference proof against ground truth.
+
+        This replaces the traditional PoW validation with actual
+        ML computation validation.
+        """
+        # Get ground truth cache
+        cache = await self._get_ground_truth_cache()
+
+        # Get task metadata
+        task_metadata = task.metadata_ or {}
+        shard_task_data = task_metadata.get("shard_task", {})
+        model_name = shard_task_data.get("model_name", "mnist-tiny")
+        ground_truth_key = shard_task_data.get("ground_truth_key")
+
+        if not ground_truth_key:
+            logger.error(f"Missing ground truth key for task {task.id}")
+            return False
+
+        # Parse ground truth key
+        parts = ground_truth_key.split(":")
+        if len(parts) < 3:
+            return False
+
+        input_hash = parts[1]
+
+        # Validate that the client computed the expected output
+        # by checking the output hash
+        for layer_name, client_output in inference_proof.layer_outputs.items():
+            layer_index = self._extract_layer_index(layer_name)
+
+            gt_entry = cache.get_ground_truth(
+                sample_id=input_hash,
+                model_name=model_name,
+                layer_index=layer_index
+            )
+
+            if gt_entry:
+                # Compute hash of client output
+                client_output_bytes = json.dumps(client_output, sort_keys=True).encode()
+                client_hash = hashlib.sha256(client_output_bytes).hexdigest()[:16]
+
+                if client_hash != gt_entry.output_hash:
+                    logger.warning(
+                        f"Inference proof validation failed for {layer_name}: "
+                        f"hash mismatch"
+                    )
+                    return False
+
+        return True
+
     async def should_require_verification(
         self,
         session: Session,
@@ -199,32 +393,27 @@ class InferenceValidator:
 
         # Higher probability for suspicious
         if session.difficulty_tier == "suspicious":
-            base_probability = 0.5
-        else:
-            base_probability = settings.verification_rate
+            return random.random() < 0.5
 
-        # Adjust based on prediction confidence
-        if prediction.confidence < 0.5:
-            # Low confidence = more likely to verify
-            base_probability *= 1.5
+        # Normal difficulty - lower probability
+        return random.random() < 0.1
 
-        # Random sampling
-        return random.random() < base_probability
-
-    async def record_known_sample_result(
+    async def get_validation_summary(
         self,
-        fingerprint: str,
-        was_correct: bool,
-    ) -> None:
-        """Record known sample validation result for risk scoring."""
-        key = f"known_accuracy:{fingerprint}"
+        task_id: str
+    ) -> Dict[str, Any]:
+        """
+        Get validation summary for a task.
 
-        # Update accuracy with exponential moving average
-        current = await self.redis.get(key)
-        if current:
-            current_acc = float(current)
-            new_acc = 0.3 * (1.0 if was_correct else 0.0) + 0.7 * current_acc
-        else:
-            new_acc = 1.0 if was_correct else 0.0
+        Returns:
+            Dictionary with validation statistics
+        """
+        cache = await self._get_ground_truth_cache()
+        stats = cache.get_stats()
 
-        await self.redis.setex(key, 86400, str(new_acc))  # 24 hour expiry
+        return {
+            "task_id": task_id,
+            "ground_truth_entries": stats.total_entries,
+            "models_cached": stats.models_cached,
+            "cache_size_mb": round(stats.cache_size_mb, 2)
+        }

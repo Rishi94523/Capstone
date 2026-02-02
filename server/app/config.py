@@ -24,13 +24,13 @@ class Settings(BaseSettings):
     # Server
     host: str = Field(default="0.0.0.0", description="Server host")
     port: int = Field(default=8000, description="Server port")
-    debug: bool = Field(default=False, description="Debug mode")
+    debug: bool = Field(default=True, description="Debug mode")
     log_level: str = Field(default="INFO", description="Logging level")
 
-    # Database
+    # Database - defaults to SQLite for local development
     database_url: str = Field(
-        default="postgresql+asyncpg://pouw:pouw_secret@localhost:5432/pouw_captcha",
-        description="PostgreSQL connection URL",
+        default="sqlite+aiosqlite:///./pouw_captcha.db",
+        description="Database connection URL (SQLite for dev, PostgreSQL for prod)",
     )
     database_pool_size: int = Field(default=10, description="Database connection pool size")
     database_max_overflow: int = Field(default=20, description="Max overflow connections")
@@ -54,7 +54,7 @@ class Settings(BaseSettings):
 
     # CORS
     allowed_origins: List[str] = Field(
-        default=["http://localhost:3000", "http://localhost:5173"],
+        default=["http://localhost:3000", "http://localhost:3001", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:3001"],
         description="Allowed CORS origins",
     )
     allowed_hosts: List[str] = Field(

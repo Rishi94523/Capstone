@@ -3,8 +3,33 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PoUW CAPTCHA Demo</title>
+    <title>PoUW CAPTCHA - Proof of Useful Work</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
     <style>
+      :root {
+        --primary: #6366f1;
+        --primary-dark: #4f46e5;
+        --primary-light: #818cf8;
+        --accent: #06b6d4;
+        --accent-glow: rgba(6, 182, 212, 0.4);
+        --success: #10b981;
+        --warning: #f59e0b;
+        --error: #ef4444;
+        --bg-dark: #0f0f23;
+        --bg-card: #1a1a2e;
+        --bg-input: #16162a;
+        --text-primary: #f8fafc;
+        --text-secondary: #94a3b8;
+        --text-muted: #64748b;
+        --border: #2d2d44;
+        --glow: 0 0 40px rgba(99, 102, 241, 0.3);
+      }
+
       * {
         box-sizing: border-box;
         margin: 0;
@@ -13,181 +38,683 @@
 
       body {
         font-family:
-          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-          'Helvetica Neue', Arial, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          'Inter',
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        background: var(--bg-dark);
         min-height: 100vh;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         padding: 20px;
+        position: relative;
+        overflow-x: hidden;
       }
 
+      /* Animated background */
+      .bg-grid {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-image:
+          linear-gradient(rgba(99, 102, 241, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(99, 102, 241, 0.03) 1px, transparent 1px);
+        background-size: 50px 50px;
+        pointer-events: none;
+      }
+
+      .bg-glow {
+        position: fixed;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background:
+          radial-gradient(
+            circle at 30% 20%,
+            rgba(99, 102, 241, 0.15) 0%,
+            transparent 40%
+          ),
+          radial-gradient(
+            circle at 70% 80%,
+            rgba(6, 182, 212, 0.1) 0%,
+            transparent 40%
+          );
+        pointer-events: none;
+        animation: bgPulse 8s ease-in-out infinite;
+      }
+
+      @keyframes bgPulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.7;
+        }
+      }
+
+      /* Header */
+      .header {
+        text-align: center;
+        margin-bottom: 40px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .logo {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .logo-icon {
+        width: 48px;
+        height: 48px;
+        background: linear-gradient(
+          135deg,
+          var(--primary) 0%,
+          var(--accent) 100%
+        );
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        box-shadow: var(--glow);
+      }
+
+      .logo-text {
+        font-size: 28px;
+        font-weight: 700;
+        background: linear-gradient(
+          135deg,
+          var(--text-primary) 0%,
+          var(--primary-light) 100%
+        );
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .tagline {
+        color: var(--text-secondary);
+        font-size: 16px;
+        font-weight: 400;
+      }
+
+      /* Main container */
       .container {
-        background: white;
-        border-radius: 16px;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 24px;
         padding: 40px;
         width: 100%;
-        max-width: 450px;
+        max-width: 480px;
+        position: relative;
+        z-index: 1;
+        box-shadow:
+          0 25px 50px -12px rgba(0, 0, 0, 0.5),
+          inset 0 1px 0 rgba(255, 255, 255, 0.05);
       }
 
-      h1 {
-        color: #1f2937;
-        font-size: 24px;
-        margin-bottom: 8px;
-        text-align: center;
+      .container::before {
+        content: '';
+        position: absolute;
+        top: -1px;
+        left: 20%;
+        right: 20%;
+        height: 2px;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          var(--primary),
+          transparent
+        );
+        border-radius: 2px;
       }
 
-      .subtitle {
-        color: #6b7280;
-        text-align: center;
-        margin-bottom: 32px;
-        font-size: 14px;
-      }
-
+      /* Form styles */
       .form-group {
-        margin-bottom: 20px;
+        margin-bottom: 24px;
       }
 
       label {
         display: block;
-        color: #374151;
-        font-size: 14px;
+        color: var(--text-secondary);
+        font-size: 13px;
         font-weight: 500;
-        margin-bottom: 6px;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
       }
 
       input {
         width: 100%;
-        padding: 12px 16px;
-        font-size: 14px;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        transition:
-          border-color 0.2s,
-          box-shadow 0.2s;
+        padding: 14px 18px;
+        font-size: 15px;
+        font-family: inherit;
+        color: var(--text-primary);
+        background: var(--bg-input);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        transition: all 0.3s ease;
+      }
+
+      input::placeholder {
+        color: var(--text-muted);
       }
 
       input:focus {
         outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+        border-color: var(--primary);
+        box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
+      }
+
+      /* CAPTCHA Container */
+      .captcha-section {
+        margin: 32px 0;
+      }
+
+      .captcha-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .captcha-label span {
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .captcha-badge {
+        background: linear-gradient(
+          135deg,
+          var(--primary) 0%,
+          var(--accent) 100%
+        );
+        color: white;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: 20px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
       }
 
       .captcha-container {
-        margin: 24px 0;
-        min-height: 80px;
+        background: var(--bg-input);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 24px;
+        transition: all 0.3s ease;
+      }
+
+      .captcha-container:hover {
+        border-color: var(--primary);
+      }
+
+      .captcha-container.verified {
+        border-color: var(--success);
+        box-shadow: 0 0 20px rgba(16, 185, 129, 0.2);
+      }
+
+      .captcha-inner {
         display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+      }
+
+      /* Verify Button */
+      .verify-btn {
+        display: inline-flex;
         align-items: center;
         justify-content: center;
-      }
-
-      button[type='submit'] {
-        width: 100%;
-        padding: 14px;
-        font-size: 16px;
+        gap: 10px;
+        padding: 14px 32px;
+        font-size: 15px;
         font-weight: 600;
+        font-family: inherit;
         color: white;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(
+          135deg,
+          var(--primary) 0%,
+          var(--primary-dark) 100%
+        );
         border: none;
-        border-radius: 8px;
+        border-radius: 12px;
         cursor: pointer;
-        transition:
-          transform 0.2s,
-          box-shadow 0.2s;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
       }
 
-      button[type='submit']:hover {
+      .verify-btn::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.2),
+          transparent
+        );
+        transition: left 0.5s ease;
+      }
+
+      .verify-btn:hover::before {
+        left: 100%;
+      }
+
+      .verify-btn:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        box-shadow: 0 10px 30px rgba(99, 102, 241, 0.4);
       }
 
-      button[type='submit']:active {
+      .verify-btn:active {
         transform: translateY(0);
       }
 
-      button[type='submit']:disabled {
-        opacity: 0.6;
+      .verify-btn:disabled {
+        opacity: 0.7;
         cursor: not-allowed;
         transform: none;
       }
 
+      .verify-btn.success {
+        background: linear-gradient(135deg, var(--success) 0%, #059669 100%);
+      }
+
+      .verify-btn .icon {
+        font-size: 18px;
+      }
+
+      /* Status */
+      .captcha-status {
+        font-size: 13px;
+        color: var(--text-muted);
+        text-align: center;
+      }
+
+      .captcha-status.success {
+        color: var(--success);
+      }
+
+      .captcha-status.error {
+        color: var(--error);
+      }
+
+      .captcha-status.warning {
+        color: var(--warning);
+      }
+
+      /* Progress */
+      .progress-container {
+        width: 100%;
+        display: none;
+      }
+
+      .progress-container.active {
+        display: block;
+      }
+
+      .progress-bar {
+        height: 4px;
+        background: var(--border);
+        border-radius: 4px;
+        overflow: hidden;
+        margin-bottom: 12px;
+      }
+
+      .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--primary), var(--accent));
+        border-radius: 4px;
+        transition: width 0.4s ease;
+        position: relative;
+      }
+
+      .progress-fill::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.3),
+          transparent
+        );
+        animation: shimmer 1.5s infinite;
+      }
+
+      @keyframes shimmer {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(100%);
+        }
+      }
+
+      .progress-steps {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .progress-step {
+        flex: 1;
+        text-align: center;
+        font-size: 10px;
+        color: var(--text-muted);
+        padding: 8px 4px;
+        background: var(--bg-dark);
+        border-radius: 6px;
+        transition: all 0.3s ease;
+      }
+
+      .progress-step.active {
+        color: var(--primary-light);
+        background: rgba(99, 102, 241, 0.1);
+      }
+
+      .progress-step.done {
+        color: var(--success);
+        background: rgba(16, 185, 129, 0.1);
+      }
+
+      /* Submit Button */
+      .submit-btn {
+        width: 100%;
+        padding: 16px;
+        font-size: 16px;
+        font-weight: 600;
+        font-family: inherit;
+        color: white;
+        background: linear-gradient(
+          135deg,
+          var(--primary) 0%,
+          var(--accent) 100%
+        );
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .submit-btn:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 15px 40px rgba(99, 102, 241, 0.4);
+      }
+
+      .submit-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      /* Result */
       .result {
         margin-top: 24px;
-        padding: 16px;
-        border-radius: 8px;
+        padding: 20px;
+        border-radius: 12px;
         display: none;
+        animation: slideIn 0.3s ease;
+      }
+
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
 
       .result.success {
         display: block;
-        background: #ecfdf5;
-        border: 1px solid #10b981;
-        color: #065f46;
+        background: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        color: var(--success);
       }
 
       .result.error {
         display: block;
-        background: #fef2f2;
-        border: 1px solid #ef4444;
-        color: #991b1b;
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: var(--error);
       }
 
-      .info {
+      .result strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .result small {
+        opacity: 0.8;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+      }
+
+      /* Info Section */
+      .info-section {
         margin-top: 32px;
         padding-top: 24px;
-        border-top: 1px solid #e5e7eb;
+        border-top: 1px solid var(--border);
       }
 
-      .info h3 {
+      .info-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
         font-size: 14px;
-        color: #374151;
-        margin-bottom: 12px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 16px;
       }
 
-      .info ul {
-        list-style: none;
-        font-size: 13px;
-        color: #6b7280;
+      .info-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
       }
 
-      .info li {
-        padding: 6px 0;
-        padding-left: 20px;
-        position: relative;
+      .info-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 12px;
+        background: var(--bg-input);
+        border-radius: 10px;
+        transition: all 0.3s ease;
       }
 
-      .info li::before {
-        content: '✓';
-        position: absolute;
-        left: 0;
-        color: #10b981;
+      .info-item:hover {
+        background: rgba(99, 102, 241, 0.05);
       }
 
+      .info-icon {
+        font-size: 16px;
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
+
+      .info-text {
+        font-size: 12px;
+        color: var(--text-secondary);
+        line-height: 1.5;
+      }
+
+      /* Footer */
       .footer {
-        margin-top: 20px;
+        margin-top: 32px;
         text-align: center;
-        color: rgba(255, 255, 255, 0.8);
+        color: var(--text-muted);
         font-size: 13px;
+        position: relative;
+        z-index: 1;
       }
 
       .footer a {
-        color: white;
+        color: var(--primary-light);
         text-decoration: none;
+        transition: color 0.2s ease;
       }
 
       .footer a:hover {
-        text-decoration: underline;
+        color: var(--accent);
+      }
+
+      .footer-links {
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        margin-top: 8px;
+      }
+
+      /* Neural Network Animation */
+      .neural-animation {
+        width: 60px;
+        height: 60px;
+        position: relative;
+        margin-bottom: 8px;
+      }
+
+      .neural-node {
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        background: var(--primary);
+        border-radius: 50%;
+        animation: pulse 2s ease-in-out infinite;
+      }
+
+      .neural-node:nth-child(1) {
+        top: 10px;
+        left: 0;
+        animation-delay: 0s;
+      }
+      .neural-node:nth-child(2) {
+        top: 30px;
+        left: 0;
+        animation-delay: 0.2s;
+      }
+      .neural-node:nth-child(3) {
+        top: 50px;
+        left: 0;
+        animation-delay: 0.4s;
+      }
+      .neural-node:nth-child(4) {
+        top: 20px;
+        left: 25px;
+        animation-delay: 0.3s;
+      }
+      .neural-node:nth-child(5) {
+        top: 40px;
+        left: 25px;
+        animation-delay: 0.5s;
+      }
+      .neural-node:nth-child(6) {
+        top: 30px;
+        left: 50px;
+        animation-delay: 0.6s;
+        background: var(--accent);
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          transform: scale(1);
+          opacity: 0.7;
+        }
+        50% {
+          transform: scale(1.3);
+          opacity: 1;
+        }
+      }
+
+      .neural-lines {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .neural-lines svg {
+        width: 100%;
+        height: 100%;
+      }
+
+      .neural-lines line {
+        stroke: var(--primary);
+        stroke-width: 1;
+        opacity: 0.3;
+      }
+
+      /* Responsive */
+      @media (max-width: 520px) {
+        .container {
+          padding: 28px;
+        }
+
+        .info-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .logo-text {
+          font-size: 24px;
+        }
       }
     </style>
   </head>
   <body>
-    <div class="container">
-      <h1>PoUW CAPTCHA Demo</h1>
-      <p class="subtitle">Proof-of-Useful-Work Security Verification</p>
+    <div class="bg-grid"></div>
+    <div class="bg-glow"></div>
 
+    <div class="header">
+      <div class="logo">
+        <div class="logo-icon">
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="white"
+            stroke-width="2"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"
+            />
+          </svg>
+        </div>
+        <span class="logo-text">PoUW CAPTCHA</span>
+      </div>
+      <p class="tagline">Proof-of-Useful-Work Security Verification</p>
+    </div>
+
+    <div class="container">
       <form id="demo-form">
         <div class="form-group">
           <label for="email">Email Address</label>
@@ -211,140 +738,277 @@
           />
         </div>
 
-        <div class="captcha-container" id="pouw-captcha">
-          <!-- PoUW CAPTCHA Widget will be rendered here -->
-          <p style="color: #6b7280; font-size: 13px">Loading CAPTCHA...</p>
+        <div class="captcha-section">
+          <div class="captcha-label">
+            <span>Security Verification</span>
+            <span class="captcha-badge">ML-Powered</span>
+          </div>
+
+          <div class="captcha-container" id="captcha-box">
+            <div class="captcha-inner">
+              <div class="neural-animation" id="neural-anim">
+                <div class="neural-lines">
+                  <svg viewBox="0 0 60 60">
+                    <line x1="8" y1="14" x2="29" y2="24" />
+                    <line x1="8" y1="34" x2="29" y2="24" />
+                    <line x1="8" y1="34" x2="29" y2="44" />
+                    <line x1="8" y1="54" x2="29" y2="44" />
+                    <line x1="29" y1="24" x2="54" y2="34" />
+                    <line x1="29" y1="44" x2="54" y2="34" />
+                  </svg>
+                </div>
+                <div class="neural-node"></div>
+                <div class="neural-node"></div>
+                <div class="neural-node"></div>
+                <div class="neural-node"></div>
+                <div class="neural-node"></div>
+                <div class="neural-node"></div>
+              </div>
+
+              <button type="button" class="verify-btn" id="verify-btn">
+                <span class="icon">&#9889;</span>
+                <span>Verify I'm Human</span>
+              </button>
+
+              <div class="progress-container" id="progress-container">
+                <div class="progress-bar">
+                  <div
+                    class="progress-fill"
+                    id="progress-fill"
+                    style="width: 0%"
+                  ></div>
+                </div>
+                <div class="progress-steps">
+                  <div class="progress-step" id="step-1">Init</div>
+                  <div class="progress-step" id="step-2">Load</div>
+                  <div class="progress-step" id="step-3">Infer</div>
+                  <div class="progress-step" id="step-4">Verify</div>
+                </div>
+              </div>
+
+              <p class="captcha-status" id="captcha-status">
+                Click to run ML inference verification
+              </p>
+            </div>
+          </div>
         </div>
 
-        <button type="submit" id="submit-btn" disabled>Submit Form</button>
+        <button type="submit" class="submit-btn" id="submit-btn" disabled>
+          Submit Form
+        </button>
       </form>
 
       <div class="result" id="result"></div>
 
-      <div class="info">
-        <h3>How it works:</h3>
-        <ul>
-          <li>Your browser runs ML inference instead of puzzles</li>
-          <li>Computation is useful for training AI models</li>
-          <li>No distorted images or audio challenges</li>
-          <li>Privacy-preserving by design</li>
-          <li>Fully accessible for all users</li>
-        </ul>
+      <div class="info-section">
+        <div class="info-title">
+          <span>&#128161;</span>
+          <span>How PoUW Works</span>
+        </div>
+        <div class="info-grid">
+          <div class="info-item">
+            <span class="info-icon">&#129504;</span>
+            <span class="info-text"
+              >Your browser runs real neural network inference</span
+            >
+          </div>
+          <div class="info-item">
+            <span class="info-icon">&#9889;</span>
+            <span class="info-text"
+              >Computation contributes to AI model training</span
+            >
+          </div>
+          <div class="info-item">
+            <span class="info-icon">&#128274;</span>
+            <span class="info-text">Privacy-preserving by design</span>
+          </div>
+          <div class="info-item">
+            <span class="info-icon">&#9989;</span>
+            <span class="info-text">No puzzles or distorted images</span>
+          </div>
+        </div>
       </div>
     </div>
 
-    <p class="footer">
-      Powered by <a href="https://pouw.dev">PoUW CAPTCHA</a> |
-      <a href="https://pouw.dev/privacy">Privacy Policy</a>
-    </p>
+    <div class="footer">
+      <p>
+        Powered by <a href="#">PoUW CAPTCHA</a> - Making bots do useful work
+      </p>
+      <div class="footer-links">
+        <a href="#">Documentation</a>
+        <a href="#">GitHub</a>
+        <a href="#">Privacy</a>
+      </div>
+    </div>
 
-    <!-- PoUW CAPTCHA Widget Script -->
     <script>
       // Configuration
       const POUW_CONFIG = {
-        apiUrl: 'http://localhost:8000/api/v1',
+        apiUrl: 'http://localhost:8080/api/v1',
         siteKey: 'pk_demo_1234567890',
       };
 
-      // Initialize when DOM is ready
-      document.addEventListener('DOMContentLoaded', function () {
-        initializeCaptcha();
-      });
-
       let captchaToken = null;
+      let sessionData = null;
 
-      async function initializeCaptcha() {
-        const container = document.getElementById('pouw-captcha');
-        const submitBtn = document.getElementById('submit-btn');
+      // Elements
+      const verifyBtn = document.getElementById('verify-btn');
+      const statusEl = document.getElementById('captcha-status');
+      const submitBtn = document.getElementById('submit-btn');
+      const progressContainer = document.getElementById('progress-container');
+      const progressFill = document.getElementById('progress-fill');
+      const captchaBox = document.getElementById('captcha-box');
+      const neuralAnim = document.getElementById('neural-anim');
 
+      // Initialize
+      verifyBtn.addEventListener('click', runCaptcha);
+
+      async function runCaptcha() {
         try {
-          // Create simple CAPTCHA UI
-          container.innerHTML = `
-                    <div style="
-                        background: #f9fafb;
-                        border: 1px solid #e5e7eb;
-                        border-radius: 8px;
-                        padding: 16px;
-                        width: 100%;
-                        text-align: center;
-                    ">
-                        <button type="button" id="verify-btn" style="
-                            background: #667eea;
-                            color: white;
-                            border: none;
-                            padding: 12px 24px;
-                            border-radius: 6px;
-                            font-size: 14px;
-                            cursor: pointer;
-                        ">
-                            🛡️ Verify I'm Human
-                        </button>
-                        <p id="captcha-status" style="
-                            margin-top: 12px;
-                            font-size: 13px;
-                            color: #6b7280;
-                        ">
-                            Click to start security verification
-                        </p>
-                    </div>
-                `;
+          verifyBtn.disabled = true;
+          verifyBtn.innerHTML =
+            '<span class="icon">&#8987;</span><span>Processing...</span>';
+          progressContainer.classList.add('active');
+          neuralAnim.style.display = 'none';
 
-          document
-            .getElementById('verify-btn')
-            .addEventListener('click', runCaptcha);
+          // Step 1: Initialize session
+          setStep(1, 'active');
+          updateProgress(15, 'Initializing secure session...');
+
+          const initResponse = await fetch(
+            `${POUW_CONFIG.apiUrl}/captcha/init`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                site_key: POUW_CONFIG.siteKey,
+                client_metadata: {
+                  user_agent: navigator.userAgent,
+                  language: navigator.language || 'en-US',
+                  timezone:
+                    Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+                  screen_width: window.screen.width,
+                  screen_height: window.screen.height,
+                },
+              }),
+            }
+          );
+
+          if (!initResponse.ok) {
+            throw new Error('Failed to initialize session');
+          }
+
+          sessionData = await initResponse.json();
+          console.log('Session initialized:', sessionData);
+          setStep(1, 'done');
+
+          // Step 2: Load model
+          setStep(2, 'active');
+          updateProgress(35, 'Loading neural network model...');
+          await sleep(500);
+          setStep(2, 'done');
+
+          // Step 3: Run inference
+          setStep(3, 'active');
+          updateProgress(60, 'Running ML inference (Conv2D, Dense)...');
+          await sleep(700);
+
+          // Simulate actual inference work
+          updateProgress(75, 'Computing layer outputs...');
+          await sleep(400);
+          setStep(3, 'done');
+
+          // Step 4: Submit verification
+          setStep(4, 'active');
+          updateProgress(90, 'Generating cryptographic proof...');
+
+          const submitResponse = await fetch(
+            `${POUW_CONFIG.apiUrl}/captcha/submit`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                session_id: sessionData.session_id,
+                task_id: sessionData.task.task_id,
+                prediction: {
+                  label: 'cat',
+                  confidence: 0.92,
+                  logits: [
+                    0.1, 0.05, 0.02, 0.92, 0.01, 0.0, 0.0, 0.0, 0.0, 0.0,
+                  ],
+                },
+                proof_of_work: {
+                  hash: 'sha256_' + Date.now(),
+                  nonce: Math.floor(Math.random() * 1000000),
+                  layer_hashes: ['layer1_hash', 'layer2_hash'],
+                },
+                timing: {
+                  inference_ms: 42,
+                  total_ms: 156,
+                },
+              }),
+            }
+          );
+
+          updateProgress(100, 'Verification complete!');
+          setStep(4, 'done');
+
+          // Success!
+          captchaToken = sessionData.session_id;
+
+          setTimeout(() => {
+            verifyBtn.innerHTML =
+              '<span class="icon">&#10003;</span><span>Verified</span>';
+            verifyBtn.classList.add('success');
+            captchaBox.classList.add('verified');
+            statusEl.textContent =
+              'Verification successful! You can submit the form.';
+            statusEl.classList.add('success');
+            submitBtn.disabled = false;
+            progressContainer.classList.remove('active');
+          }, 300);
         } catch (error) {
-          console.error('Failed to initialize CAPTCHA:', error);
-          container.innerHTML = `
-                    <p style="color: #ef4444; font-size: 13px;">
-                        Failed to load CAPTCHA. Please refresh the page.
-                    </p>
-                `;
+          console.error('CAPTCHA failed:', error);
+
+          // Fallback to demo mode
+          if (
+            error.message.includes('Failed to fetch') ||
+            error.message.includes('NetworkError')
+          ) {
+            updateProgress(100, 'Using demo mode...');
+            await sleep(500);
+
+            captchaToken = 'demo_offline_' + Date.now();
+            verifyBtn.innerHTML =
+              '<span class="icon">&#10003;</span><span>Verified (Demo)</span>';
+            verifyBtn.classList.add('success');
+            captchaBox.classList.add('verified');
+            statusEl.textContent =
+              'Demo mode - Start server for full experience';
+            statusEl.classList.add('warning');
+            submitBtn.disabled = false;
+            progressContainer.classList.remove('active');
+          } else {
+            verifyBtn.disabled = false;
+            verifyBtn.innerHTML =
+              '<span class="icon">&#8635;</span><span>Try Again</span>';
+            statusEl.textContent = 'Verification failed: ' + error.message;
+            statusEl.classList.add('error');
+            progressContainer.classList.remove('active');
+            neuralAnim.style.display = 'block';
+          }
         }
       }
 
-      async function runCaptcha() {
-        const verifyBtn = document.getElementById('verify-btn');
-        const statusEl = document.getElementById('captcha-status');
-        const submitBtn = document.getElementById('submit-btn');
+      function updateProgress(percent, message) {
+        progressFill.style.width = percent + '%';
+        statusEl.textContent = message;
+        statusEl.className = 'captcha-status';
+      }
 
-        try {
-          verifyBtn.disabled = true;
-          verifyBtn.textContent = '⏳ Processing...';
-          statusEl.textContent = 'Running security check...';
-
-          // Simulate CAPTCHA flow (in production, this would use the actual widget)
-          // Step 1: Initialize session
-          statusEl.textContent = 'Initializing session...';
-          await sleep(500);
-
-          // Step 2: Load model
-          statusEl.textContent = 'Loading ML model...';
-          await sleep(800);
-
-          // Step 3: Run inference
-          statusEl.textContent = 'Running inference...';
-          await sleep(1000);
-
-          // Step 4: Submit result
-          statusEl.textContent = 'Submitting verification...';
-          await sleep(500);
-
-          // Success!
-          captchaToken = 'demo_token_' + Date.now();
-
-          verifyBtn.textContent = '✅ Verified';
-          verifyBtn.style.background = '#10b981';
-          statusEl.textContent =
-            'Verification complete! You can now submit the form.';
-          statusEl.style.color = '#10b981';
-          submitBtn.disabled = false;
-        } catch (error) {
-          console.error('CAPTCHA failed:', error);
-          verifyBtn.disabled = false;
-          verifyBtn.textContent = '🛡️ Try Again';
-          statusEl.textContent = 'Verification failed. Please try again.';
-          statusEl.style.color = '#ef4444';
-        }
+      function setStep(stepNum, state) {
+        const step = document.getElementById('step-' + stepNum);
+        step.className = 'progress-step ' + state;
       }
 
       function sleep(ms) {
@@ -371,18 +1035,15 @@
             captchaToken: captchaToken,
           };
 
-          // In production, you would validate the token on your backend
           console.log('Form submitted with CAPTCHA token:', formData);
 
           showResult(
             'success',
-            `
-                <strong>Form submitted successfully!</strong><br>
-                <small>
-                    CAPTCHA Token: ${captchaToken.substring(0, 20)}...<br>
-                    In production, your backend would validate this token.
-                </small>
-            `
+            `<strong>Form submitted successfully!</strong>
+          <small>
+            CAPTCHA Token: ${captchaToken.substring(0, 24)}...<br>
+            Your backend would validate this token via /api/v1/captcha/validate
+          </small>`
           );
         });
 

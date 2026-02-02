@@ -10,6 +10,8 @@ import type {
   TimingData,
   VerificationData,
   WidgetState,
+  ShardTask,
+  InferenceProof,
 } from '../types';
 
 /**
@@ -20,8 +22,8 @@ export class CaptchaSession {
   public readonly sessionId: string;
   /** Challenge token for validation */
   public readonly challengeToken: string;
-  /** Assigned task */
-  public readonly task: CaptchaTask;
+  /** Assigned task (can be CaptchaTask or ShardTask) */
+  public readonly task: CaptchaTask | ShardTask;
   /** Difficulty level */
   public readonly difficulty: 'normal' | 'suspicious' | 'bot_like';
   /** Session expiry time */
@@ -35,8 +37,10 @@ export class CaptchaSession {
   private _prediction: Prediction | null = null;
   /** Timing data */
   private _timing: TimingData | null = null;
-  /** Proof of work */
+  /** Proof of work (legacy) */
   private _proofOfWork: ProofOfWork | null = null;
+  /** Inference proof (new shard-based) */
+  private _inferenceProof: InferenceProof | null = null;
   /** Verification data */
   private _verificationData: VerificationData | null = null;
   /** Final token */
@@ -102,17 +106,31 @@ export class CaptchaSession {
   }
 
   /**
-   * Get proof of work
+   * Get proof of work (legacy)
    */
   get proofOfWork(): ProofOfWork | null {
     return this._proofOfWork;
   }
 
   /**
-   * Set proof of work
+   * Set proof of work (legacy)
    */
   set proofOfWork(value: ProofOfWork | null) {
     this._proofOfWork = value;
+  }
+
+  /**
+   * Get inference proof (shard-based)
+   */
+  get inferenceProof(): InferenceProof | null {
+    return this._inferenceProof;
+  }
+
+  /**
+   * Set inference proof (shard-based)
+   */
+  set inferenceProof(value: InferenceProof | null) {
+    this._inferenceProof = value;
   }
 
   /**
@@ -224,6 +242,20 @@ export class CaptchaSession {
       timing: this._timing,
       error: this._error?.message,
     };
+  }
+
+  /**
+   * Check if session has a shard task
+   */
+  isShardTask(): boolean {
+    return 'shards' in this.task;
+  }
+
+  /**
+   * Get shard task (if applicable)
+   */
+  getShardTask(): ShardTask | null {
+    return this.isShardTask() ? (this.task as ShardTask) : null;
   }
 
   /**

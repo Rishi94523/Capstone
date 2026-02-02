@@ -15,21 +15,26 @@ export function getWidgetStyles(): string {
 
   return `
     :host {
-      --pouw-primary: #2563eb;
-      --pouw-primary-hover: #1d4ed8;
-      --pouw-success: #16a34a;
-      --pouw-error: #dc2626;
-      --pouw-warning: #d97706;
-      --pouw-bg: #ffffff;
-      --pouw-bg-secondary: #f3f4f6;
+      --pouw-primary: #6366f1;
+      --pouw-primary-hover: #4f46e5;
+      --pouw-primary-glow: rgba(99, 102, 241, 0.3);
+      --pouw-success: #10b981;
+      --pouw-success-glow: rgba(16, 185, 129, 0.3);
+      --pouw-error: #ef4444;
+      --pouw-error-glow: rgba(239, 68, 68, 0.3);
+      --pouw-warning: #f59e0b;
+      --pouw-bg: rgba(255, 255, 255, 0.85);
+      --pouw-bg-glass: rgba(255, 255, 255, 0.7);
+      --pouw-bg-secondary: rgba(243, 244, 246, 0.6);
       --pouw-text: #1f2937;
       --pouw-text-secondary: #6b7280;
-      --pouw-border: #e5e7eb;
-      --pouw-border-radius: 8px;
-      --pouw-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-      --pouw-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 
+      --pouw-border: rgba(229, 231, 235, 0.5);
+      --pouw-border-radius: 16px;
+      --pouw-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+      --pouw-shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.12);
+      --pouw-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 
                           'Helvetica Neue', Arial, sans-serif;
-      --pouw-transition: ${reducedMotion ? 'none' : '150ms ease-in-out'};
+      --pouw-transition: ${reducedMotion ? 'none' : 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'};
 
       display: block;
       font-family: var(--pouw-font-family);
@@ -39,11 +44,12 @@ export function getWidgetStyles(): string {
     }
 
     :host(.dark) {
-      --pouw-bg: #1f2937;
-      --pouw-bg-secondary: #374151;
+      --pouw-bg: rgba(31, 41, 55, 0.9);
+      --pouw-bg-glass: rgba(31, 41, 55, 0.7);
+      --pouw-bg-secondary: rgba(55, 65, 81, 0.5);
       --pouw-text: #f9fafb;
       --pouw-text-secondary: #9ca3af;
-      --pouw-border: #4b5563;
+      --pouw-border: rgba(75, 85, 99, 0.5);
     }
 
     ${highContrast ? `
@@ -62,13 +68,29 @@ export function getWidgetStyles(): string {
     }
 
     .pouw-container {
-      background: var(--pouw-bg);
+      background: var(--pouw-bg-glass);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
       border: 1px solid var(--pouw-border);
       border-radius: var(--pouw-border-radius);
-      box-shadow: var(--pouw-shadow);
-      padding: 16px;
-      min-width: 300px;
-      max-width: 400px;
+      box-shadow: var(--pouw-shadow-lg);
+      padding: 24px;
+      min-width: 320px;
+      max-width: 420px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .pouw-container::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: radial-gradient(circle, var(--pouw-primary-glow) 0%, transparent 70%);
+      opacity: 0.5;
+      pointer-events: none;
     }
 
     .pouw-header {
@@ -105,21 +127,25 @@ export function getWidgetStyles(): string {
     }
 
     .pouw-spinner {
-      width: 20px;
-      height: 20px;
-      border: 2px solid var(--pouw-border);
+      width: 24px;
+      height: 24px;
+      border: 3px solid transparent;
       border-top-color: var(--pouw-primary);
+      border-right-color: var(--pouw-primary);
       border-radius: 50%;
-      animation: ${reducedMotion ? 'none' : 'pouw-spin 1s linear infinite'};
+      animation: ${reducedMotion ? 'none' : 'pouw-spin 0.8s linear infinite'};
+      box-shadow: 0 0 10px var(--pouw-primary-glow);
     }
 
     @keyframes pouw-spin {
-      to { transform: rotate(360deg); }
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
     }
 
     .pouw-message {
       color: var(--pouw-text-secondary);
-      font-size: 13px;
+      font-size: 14px;
+      font-weight: 500;
     }
 
     /* Progress Bar */

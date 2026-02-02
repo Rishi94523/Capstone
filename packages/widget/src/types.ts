@@ -3,6 +3,100 @@
  */
 
 /**
+ * Model shard configuration from server
+ */
+export interface ModelShard {
+  /** Shard index (layer depth) */
+  index: number;
+  /** Layer name */
+  name: string;
+  /** Layer type (Conv2D, Dense, etc.) */
+  layerType: string;
+  /** Serialized weights (if provided) */
+  weights?: Record<string, number[]>;
+  /** Expected input shape */
+  inputShape: number[];
+  /** Expected output shape */
+  outputShape: number[];
+  /** Activation function */
+  activation?: string;
+  /** Layer configurations for shard execution */
+  layers: NeuralLayerConfig[];
+}
+
+/**
+ * Neural layer configuration for shard execution
+ */
+export interface NeuralLayerConfig {
+  /** Layer name */
+  name: string;
+  /** Layer type (conv2d, dense, maxpool2d, flatten) */
+  type: string;
+  /** Layer weights as flat array */
+  weights: number[];
+  /** Layer biases as flat array */
+  biases: number[];
+  /** Input shape */
+  inputShape: number[];
+  /** Output shape */
+  outputShape: number[];
+  /** Activation function (relu, softmax, sigmoid, tanh, linear) */
+  activation: string;
+}
+
+/**
+ * Shard-based task assignment from server
+ */
+export interface ShardTask {
+  /** Unique task ID */
+  taskId: string;
+  /** Sample ID for this task */
+  sampleId: string;
+  /** Model name */
+  modelName: string;
+  /** Model version */
+  modelVersion: string;
+  /** Assigned shards (layers) to compute */
+  shards: ModelShard[];
+  /** Input data as base64 string */
+  inputData: string;
+  /** Input shape */
+  inputShape: number[];
+  /** Number of layers client should compute */
+  expectedLayers: number;
+  /** Difficulty level */
+  difficulty: 'easy' | 'medium' | 'hard';
+  /** Expected computation time in ms */
+  expectedTimeMs: number;
+  /** Ground truth key for validation */
+  groundTruthKey: string;
+  /** Class labels for prediction */
+  labels: string[];
+  /** Progress callback */
+  onProgress?: (progress: number) => void;
+}
+
+/**
+ * Proof of inference computation (replaces PoW)
+ */
+export interface InferenceProof {
+  /** Task ID */
+  taskId: string;
+  /** Sample ID */
+  sampleId: string;
+  /** Number of layers computed */
+  layerCount: number;
+  /** Hashes of each layer output */
+  outputHashes: string[];
+  /** Hash of prediction */
+  predictionHash: string;
+  /** Combined proof hash */
+  proofHash: string;
+  /** Timestamp when proof was generated */
+  timestamp: number;
+}
+
+/**
  * Configuration options for the CAPTCHA widget
  */
 export interface CaptchaConfig {
@@ -246,7 +340,7 @@ export type WidgetState =
 export interface InitResponse {
   sessionId: string;
   challengeToken: string;
-  task: CaptchaTask;
+  task: CaptchaTask | ShardTask;
   difficulty: 'normal' | 'suspicious' | 'bot_like';
   expiresAt: string;
 }
@@ -264,3 +358,4 @@ export interface VerifyResponse {
   captchaToken: string;
   expiresAt: string;
 }
+

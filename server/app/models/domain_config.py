@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import String, Float, Boolean, DateTime, Text, ARRAY
+from sqlalchemy import String, Float, Boolean, DateTime, Text, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -54,7 +54,7 @@ class DomainConfig(Base):
         comment="Difficulty multiplier",
     )
     allowed_origins: Mapped[Optional[List[str]]] = mapped_column(
-        ARRAY(Text),
+        JSON,  # Use JSON instead of ARRAY for SQLite compatibility
         nullable=True,
         comment="Allowed CORS origins",
     )

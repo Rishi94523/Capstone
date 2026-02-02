@@ -5,7 +5,7 @@ Task model for ML task assignments.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey
+from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -60,6 +60,13 @@ class Task(Base):
         nullable=False,
         default="assigned",
         comment="Task status: assigned, processing, completed, failed",
+    )
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata",
+        JSON,
+        nullable=False,
+        default=dict,
+        comment="Additional task metadata",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,

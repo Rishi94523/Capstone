@@ -6,8 +6,8 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, Text, DateTime, LargeBinary
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import String, Integer, Text, DateTime, LargeBinary, JSON
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -53,7 +53,7 @@ class Sample(Base):
     )
     metadata_: Mapped[dict] = mapped_column(
         "metadata",
-        JSONB,
+        JSON,  # Use JSON instead of JSONB for SQLite compatibility
         nullable=False,
         default=dict,
         comment="Additional metadata",

@@ -2,14 +2,22 @@
  * Unified ML Engine for PoUW CAPTCHA
  *
  * Provides a unified interface for TensorFlow.js and ONNX Runtime Web,
- * with automatic fallback between runtimes.
+ * with automatic fallback between runtimes. Also includes shard-based
+ * inference for adaptive ML CAPTCHA verification.
  */
 
-import type { MLModel, ModelMeta, Prediction, RuntimeType } from '../types';
+import type {
+  MLModel,
+  ModelMeta,
+  Prediction,
+  RuntimeType,
+  ShardTask,
+} from '../types';
+import type { ShardExecutionResult } from './shard-engine';
+import { ShardInferenceEngine } from './shard-engine';
 import { Config } from '../core/config';
 import { TFJSRuntime } from './tfjs-runtime';
 import { ONNXRuntime } from './onnx-runtime';
-import { ModelLoader } from './model-loader';
 
 /**
  * Model configuration for loading
@@ -27,13 +35,13 @@ export class MLEngine {
   private config: Config;
   private tfjsRuntime: TFJSRuntime | null = null;
   private onnxRuntime: ONNXRuntime | null = null;
-  private modelLoader: ModelLoader;
+  private shardEngine: ShardInferenceEngine;
   private currentModel: MLModel | null = null;
   private availableRuntimes: RuntimeType[] = [];
 
   constructor(config: Config) {
     this.config = config;
-    this.modelLoader = new ModelLoader(config);
+    this.shardEngine = new ShardInferenceEngine(config);
     this.detectAvailableRuntimes();
   }
 
@@ -67,9 +75,8 @@ export class MLEngine {
     try {
       // Check for WebGL support
       const canvas = document.createElement('canvas');
-      const gl =
-        canvas.getContext('webgl2') || canvas.getContext('webgl');
-      
+      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+
       if (!gl) {
         this.config.debug('WebGL not available, TF.js will use CPU backend');
       }
@@ -197,9 +204,7 @@ export class MLEngine {
   /**
    * Run inference on current model
    */
-  async predict(
-    input: Float32Array | ImageData | string
-  ): Promise<Prediction> {
+  async predict(input: Float32Array | ImageData | string): Promise<Prediction> {
     if (!this.currentModel) {
       throw new Error('No model loaded');
     }
@@ -226,38 +231,59 @@ export class MLEngine {
   }
 
   /**
-   * Get available runtimes
+   * Execute a shard task using the ShardInferenceEngine
+   *
+   * This is the main entry point for shard-based CAPTCHA verification.
+   * Replaces full model inference with partial layer-wise computation.
+   *
+   * @param task - The shard task containing input data and model shards
+   * @returns The execution result with computation proof and timing
    */
-  getAvailableRuntimes(): RuntimeType[] {
-    return [...this.availableRuntimes];
+  async executeShardTask(task: ShardTask): Promise<ShardExecutionResult> {
+    this.config.debug('Executing shard task', {
+      taskId: task.taskId,
+      modelName: task.modelName,
+      shardCount: task.shards.length,
+    });
+
+    try {
+      const result = await this.shardEngine.executeShards(task);
+
+      this.config.debug('Shard task execution complete', {
+        taskId: task.taskId,
+        layerCount: result.layerOutputs.length,
+        totalTimeMs: result.timing.totalMs,
+      });
+
+      return result;
+    } catch (error) {
+      this.config.error('Shard task execution failed:', error);
+      throw error;
+    }
   }
 
   /**
-   * Get current model
+   * Check if shard engine is supported in this browser
    */
-  getCurrentModel(): MLModel | null {
-    return this.currentModel;
+  isShardEngineSupported(): boolean {
+    return (
+      typeof Float32Array !== 'undefined' &&
+      typeof atob !== 'undefined' &&
+      typeof crypto !== 'undefined' &&
+      typeof crypto.subtle !== 'undefined'
+    );
   }
 
   /**
    * Dispose all resources
    */
   dispose(): void {
-    if (this.currentModel) {
-      this.currentModel.dispose();
-      this.currentModel = null;
-    }
-
-    if (this.tfjsRuntime) {
-      this.tfjsRuntime.dispose();
-      this.tfjsRuntime = null;
-    }
-
-    if (this.onnxRuntime) {
-      this.onnxRuntime.dispose();
-      this.onnxRuntime = null;
-    }
-
-    this.config.debug('ML Engine disposed');
+    this.shardEngine.dispose();
+    this.currentModel?.dispose();
+    this.currentModel = null;
+    this.tfjsRuntime?.dispose();
+    this.tfjsRuntime = null;
+    this.onnxRuntime?.dispose();
+    this.onnxRuntime = null;
   }
 }
