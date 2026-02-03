@@ -933,18 +933,29 @@
                 prediction: {
                   label: 'cat',
                   confidence: 0.92,
-                  logits: [
-                    0.1, 0.05, 0.02, 0.92, 0.01, 0.0, 0.0, 0.0, 0.0, 0.0,
+                  top_k: [
+                    { label: 'cat', confidence: 0.92 },
+                    { label: 'dog', confidence: 0.05 },
+                    { label: 'bird', confidence: 0.02 },
+                    { label: 'airplane', confidence: 0.01 },
+                    { label: 'automobile', confidence: 0.0 },
                   ],
                 },
                 proof_of_work: {
-                  hash: 'sha256_' + Date.now(),
+                  hash: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
                   nonce: Math.floor(Math.random() * 1000000),
-                  layer_hashes: ['layer1_hash', 'layer2_hash'],
+                  model_checksum: 'abc123def456',
+                  input_hash:
+                    'b1a2c3d4e5f6b1a2c3d4e5f6b1a2c3d4e5f6b1a2c3d4e5f6b1a2c3d4e5f6b1a2',
+                  output_hash:
+                    'c1d2e3f4a5b6c1d2e3f4a5b6c1d2e3f4a5b6c1d2e3f4a5b6c1d2e3f4a5b6c1d2',
                 },
                 timing: {
+                  model_load_ms: 120,
                   inference_ms: 42,
                   total_ms: 156,
+                  started_at: Date.now() - 156,
+                  completed_at: Date.now(),
                 },
               }),
             }

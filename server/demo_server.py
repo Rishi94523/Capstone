@@ -7,15 +7,22 @@ This version uses SQLite and runs without Redis for easy local development.
 import logging
 import uuid
 import random
+import json
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, ConfigDict
+from starlette.middleware.base import BaseHTTPMiddleware
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging - more verbose
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Create FastAPI app
@@ -24,6 +31,25 @@ app = FastAPI(
     description="Simplified demo server",
     version="0.1.0-demo",
 )
+
+# Middleware to log all request bodies
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Only log POST requests to /submit
+        if request.method == "POST" and "submit" in request.url.path:
+            # We can't read body here as it would consume it
+            # Instead, log what we can
+            logger.info(f"=" * 60)
+            logger.info(f"INCOMING REQUEST: {request.method} {request.url.path}")
+            logger.info(f"Content-Type: {request.headers.get('content-type')}")
+            logger.info(f"Content-Length: {request.headers.get('content-length')}")
+            logger.info(f"=" * 60)
+        
+        response = await call_next(request)
+        return response
+
+# Add middleware BEFORE CORS
+app.add_middleware(RequestLoggingMiddleware)
 
 # CORS
 app.add_middleware(
@@ -34,20 +60,94 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add validation error handler to see exact errors
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # The body was already consumed by Pydantic, so we get it from the exception
+    logger.error(f"=" * 60)
+    logger.error(f"VALIDATION ERROR on {request.url.path}")
+    logger.error(f"Errors: {json.dumps(exc.errors(), indent=2, default=str)}")
+    
+    # Log each error in detail
+    for error in exc.errors():
+        logger.error(f"  Field: {' -> '.join(str(x) for x in error.get('loc', []))}")
+        logger.error(f"  Type: {error.get('type')}")
+        logger.error(f"  Message: {error.get('msg')}")
+        logger.error(f"  Input: {error.get('input')}")
+    
+    logger.error(f"=" * 60)
+    
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": exc.errors(),
+            "message": "Validation failed - check server logs for details"
+        },
+    )
+
+# Debug endpoint to see raw request
+@app.post("/api/v1/captcha/debug-submit")
+async def debug_submit(request: Request):
+    """Debug endpoint - accepts any JSON and logs it."""
+    body = await request.body()
+    body_str = body.decode('utf-8')
+    
+    logger.info(f"=" * 60)
+    logger.info(f"DEBUG SUBMIT - Raw body received:")
+    logger.info(body_str)
+    
+    try:
+        body_json = json.loads(body_str)
+        logger.info(f"Parsed JSON structure:")
+        
+        def log_structure(obj, prefix=""):
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    if isinstance(v, (dict, list)):
+                        logger.info(f"{prefix}{k}: {type(v).__name__}")
+                        log_structure(v, prefix + "  ")
+                    else:
+                        logger.info(f"{prefix}{k}: {type(v).__name__} = {v}")
+            elif isinstance(obj, list):
+                logger.info(f"{prefix}[list of {len(obj)} items]")
+                if obj:
+                    log_structure(obj[0], prefix + "  ")
+        
+        log_structure(body_json)
+        
+        # Check what's expected vs what's received
+        expected_keys = ["session_id", "task_id", "prediction", "proof_of_work", "timing"]
+        received_keys = list(body_json.keys())
+        logger.info(f"Expected keys: {expected_keys}")
+        logger.info(f"Received keys: {received_keys}")
+        logger.info(f"Missing keys: {set(expected_keys) - set(received_keys)}")
+        logger.info(f"Extra keys: {set(received_keys) - set(expected_keys)}")
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse JSON: {e}")
+    
+    logger.info(f"=" * 60)
+    
+    return {"status": "logged", "body_length": len(body_str)}
+
 # In-memory storage for demo
 sessions = {}
 tasks = {}
 
-# Models
+# Models - Using Field aliases to accept snake_case from client
 class ClientMetadata(BaseModel):
-    user_agent: str
+    model_config = ConfigDict(populate_by_name=True)
+    
+    user_agent: str = Field(alias="user_agent")
     language: str
     timezone: str
-    screen_width: Optional[int] = None
-    screen_height: Optional[int] = None
+    screen_width: Optional[int] = Field(default=None, alias="screen_width")
+    screen_height: Optional[int] = Field(default=None, alias="screen_height")
 
 class CaptchaInitRequest(BaseModel):
-    site_key: str
+    model_config = ConfigDict(populate_by_name=True)
+    
+    site_key: str = Field(alias="site_key")
     client_metadata: ClientMetadata
 
 class TopKPrediction(BaseModel):
@@ -55,29 +155,37 @@ class TopKPrediction(BaseModel):
     confidence: float
 
 class PredictionData(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    
     label: str
     confidence: float
-    top_k: list[TopKPrediction]
+    top_k: list[TopKPrediction] = Field(alias="top_k")
 
 class ProofOfWorkData(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    
     hash: str
     nonce: int
-    model_checksum: str
-    input_hash: str
-    output_hash: str
+    model_checksum: str = Field(alias="model_checksum")
+    input_hash: str = Field(alias="input_hash")
+    output_hash: str = Field(alias="output_hash")
 
 class TimingData(BaseModel):
-    model_load_ms: int
-    inference_ms: int
-    total_ms: int
-    started_at: int
-    completed_at: int
+    model_config = ConfigDict(populate_by_name=True)
+    
+    model_load_ms: int = Field(alias="model_load_ms")
+    inference_ms: int = Field(alias="inference_ms")
+    total_ms: int = Field(alias="total_ms")
+    started_at: int = Field(alias="started_at")
+    completed_at: int = Field(alias="completed_at")
 
 class CaptchaSubmitRequest(BaseModel):
-    session_id: str
-    task_id: str
+    model_config = ConfigDict(populate_by_name=True)
+    
+    session_id: str = Field(alias="session_id")
+    task_id: str = Field(alias="task_id")
     prediction: PredictionData
-    proof_of_work: ProofOfWorkData
+    proof_of_work: ProofOfWorkData = Field(alias="proof_of_work")
     timing: TimingData
 
 @app.get("/health")
@@ -125,32 +233,38 @@ async def init_captcha(request: CaptchaInitRequest):
     
     logger.info(f"Session initialized: {session_id}")
     
+    # Return camelCase to match TypeScript client expectations
     return {
-        "session_id": session_id,
-        "challenge_token": f"challenge_{session_id}",
+        "sessionId": session_id,
+        "challengeToken": f"challenge_{session_id}",
         "task": {
-            "task_id": task_id,
-            "model_url": "https://storage.googleapis.com/tfjs-models/tfjs/mobilenet_v1_0.25_224/model.json",
-            "sample_data": None,
-            "sample_url": "https://via.placeholder.com/32x32",
-            "sample_type": "image",
-            "task_type": "inference",
-            "expected_time_ms": 500,
-            "model_meta": {
+            "taskId": task_id,
+            "modelUrl": "https://storage.googleapis.com/tfjs-models/tfjs/mobilenet_v1_0.25_224/model.json",
+            "sampleData": None,
+            "sampleUrl": "https://via.placeholder.com/224x224",
+            "sampleType": "image",
+            "taskType": "inference",
+            "expectedTimeMs": 500,
+            "modelMeta": {
                 "name": "cifar10-mobilenet",
                 "version": "1.0.0",
-                "input_shape": [1, 32, 32, 3],
+                "inputShape": [1, 224, 224, 3],
                 "labels": labels,
                 "checksum": "demo123",
             },
         },
         "difficulty": "normal",
-        "expires_at": (datetime.utcnow() + timedelta(minutes=5)).isoformat(),
+        "expiresAt": (datetime.utcnow() + timedelta(minutes=5)).isoformat(),
     }
 
 @app.post("/api/v1/captcha/submit")
 async def submit_captcha(request: CaptchaSubmitRequest):
     """Submit CAPTCHA prediction."""
+    logger.info(f"Submit request received: session_id={request.session_id}, task_id={request.task_id}")
+    logger.info(f"Prediction: {request.prediction}")
+    logger.info(f"Proof of work: {request.proof_of_work}")
+    logger.info(f"Timing: {request.timing}")
+    
     if request.session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
     
@@ -171,27 +285,25 @@ async def submit_captcha(request: CaptchaSubmitRequest):
     if requires_verification:
         return {
             "success": True,
-            "requires_verification": True,
+            "requiresVerification": True,
             "verification": {
-                "verification_id": str(uuid.uuid4()),
-                "display_data": {
-                    "type": "image",
-                    "url": "https://via.placeholder.com/150",
-                },
-                "predicted_label": request.prediction.label,
+                "verificationId": str(uuid.uuid4()),
+                "displayType": "image",
+                "displayContent": "https://via.placeholder.com/150",
+                "predictedLabel": request.prediction.label,
                 "prompt": f"Is this a {request.prediction.label}?",
                 "options": [
-                    {"id": "confirm", "label": "Yes, correct"},
-                    {"id": "reject", "label": "No, wrong"},
+                    {"id": "confirm", "label": "Yes, correct", "type": "confirm"},
+                    {"id": "reject", "label": "No, wrong", "type": "reject"},
                 ],
             },
         }
     else:
         return {
             "success": True,
-            "requires_verification": False,
-            "captcha_token": captcha_token,
-            "expires_at": (datetime.utcnow() + timedelta(minutes=5)).isoformat(),
+            "requiresVerification": False,
+            "captchaToken": captcha_token,
+            "expiresAt": (datetime.utcnow() + timedelta(minutes=5)).isoformat(),
         }
 
 @app.post("/api/v1/captcha/verify")
@@ -208,8 +320,8 @@ async def submit_verification(request: dict):
     
     return {
         "success": True,
-        "captcha_token": captcha_token,
-        "expires_at": (datetime.utcnow() + timedelta(minutes=5)).isoformat(),
+        "captchaToken": captcha_token,
+        "expiresAt": (datetime.utcnow() + timedelta(minutes=5)).isoformat(),
     }
 
 @app.get("/api/v1/captcha/validate/{token}")
@@ -221,11 +333,11 @@ async def validate_captcha(token: str):
     if is_valid:
         return {
             "valid": True,
-            "session_id": token.replace("captcha_token_", ""),
+            "sessionId": token.replace("captcha_token_", ""),
             "domain": "demo",
-            "completed_at": datetime.utcnow().isoformat(),
+            "completedAt": datetime.utcnow().isoformat(),
             "difficulty": "normal",
-            "verification_performed": False,
+            "verificationPerformed": False,
         }
     else:
         return {"valid": False}

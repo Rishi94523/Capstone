@@ -4,6 +4,7 @@ PoUW CAPTCHA Server - Main Application
 FastAPI application entry point with middleware, routes, and lifecycle management.
 """
 
+import json
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -11,6 +12,7 @@ from typing import AsyncGenerator
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 
 from app.config import get_settings
 from app.api import captcha, verification, federated
@@ -19,7 +21,7 @@ from app.utils.redis_client import init_redis, close_redis
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -83,6 +85,58 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
         content={
             "error": "internal_server_error",
             "message": "An unexpected error occurred",
+        },
+    )
+
+
+# Validation error handler - DETAILED LOGGING
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Handle validation errors with detailed logging."""
+    logger.error("=" * 80)
+    logger.error(f"VALIDATION ERROR on {request.method} {request.url.path}")
+    logger.error("=" * 80)
+    
+    # Log the raw body if possible
+    try:
+        body = await request.body()
+        body_str = body.decode('utf-8')
+        logger.error(f"Raw request body:\n{body_str}")
+        
+        # Try to parse and pretty-print
+        try:
+            body_json = json.loads(body_str)
+            logger.error(f"Parsed JSON structure:")
+            for key, value in body_json.items():
+                if isinstance(value, dict):
+                    logger.error(f"  {key}: {{dict with keys: {list(value.keys())}}}")
+                elif isinstance(value, list):
+                    logger.error(f"  {key}: [list with {len(value)} items]")
+                else:
+                    logger.error(f"  {key}: {type(value).__name__} = {str(value)[:100]}")
+        except json.JSONDecodeError:
+            pass
+    except Exception as e:
+        logger.error(f"Could not read body: {e}")
+    
+    # Log each validation error in detail
+    logger.error(f"\nValidation Errors ({len(exc.errors())} total):")
+    for i, error in enumerate(exc.errors(), 1):
+        loc = " -> ".join(str(x) for x in error.get("loc", []))
+        logger.error(f"  Error {i}:")
+        logger.error(f"    Location: {loc}")
+        logger.error(f"    Type: {error.get('type')}")
+        logger.error(f"    Message: {error.get('msg')}")
+        logger.error(f"    Input: {str(error.get('input'))[:200]}")
+    
+    logger.error("=" * 80)
+    
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "error": "validation_error",
+            "message": "Request validation failed",
+            "details": exc.errors(),
         },
     )
 
