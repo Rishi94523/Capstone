@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel, Field, ConfigDict
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -133,6 +133,7 @@ async def debug_submit(request: Request):
 # In-memory storage for demo
 sessions = {}
 tasks = {}
+inference_log = []  # Store all inference results for dashboard
 
 # Models - Using Field aliases to accept snake_case from client
 class ClientMetadata(BaseModel):
@@ -225,10 +226,26 @@ async def init_captcha(request: CaptchaInitRequest):
     ]
     
     # Create task
+    # Use CIFAR-10 sample images from a public dataset for variety
+    sample_images = [
+        "https://via.placeholder.com/224x224/FF6B6B/ffffff?text=Sample+1",
+        "https://via.placeholder.com/224x224/4ECDC4/ffffff?text=Sample+2",
+        "https://via.placeholder.com/224x224/45B7D1/ffffff?text=Sample+3",
+        "https://via.placeholder.com/224x224/96CEB4/ffffff?text=Sample+4",
+        "https://via.placeholder.com/224x224/FFEAA7/333333?text=Sample+5",
+        "https://via.placeholder.com/224x224/DDA0DD/333333?text=Sample+6",
+        "https://via.placeholder.com/224x224/98D8C8/333333?text=Sample+7",
+        "https://via.placeholder.com/224x224/F7DC6F/333333?text=Sample+8",
+    ]
+    sample_url = random.choice(sample_images)
+    expected_label = random.choice(labels)
+    
     tasks[task_id] = {
         "session_id": session_id,
         "sample_id": str(uuid.uuid4()),
-        "expected_label": random.choice(labels),
+        "sample_url": sample_url,
+        "expected_label": expected_label,
+        "created_at": datetime.utcnow().isoformat(),
     }
     
     logger.info(f"Session initialized: {session_id}")
@@ -241,7 +258,7 @@ async def init_captcha(request: CaptchaInitRequest):
             "taskId": task_id,
             "modelUrl": "https://storage.googleapis.com/tfjs-models/tfjs/mobilenet_v1_0.25_224/model.json",
             "sampleData": None,
-            "sampleUrl": "https://via.placeholder.com/224x224",
+            "sampleUrl": sample_url,
             "sampleType": "image",
             "taskType": "inference",
             "expectedTimeMs": 500,
@@ -270,6 +287,29 @@ async def submit_captcha(request: CaptchaSubmitRequest):
     
     if request.task_id not in tasks:
         raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Get task info for logging
+    task_info = tasks[request.task_id]
+    
+    # Log the inference result for dashboard
+    inference_record = {
+        "id": str(uuid.uuid4()),
+        "session_id": request.session_id,
+        "task_id": request.task_id,
+        "image_url": task_info.get("sample_url", "unknown"),
+        "expected_label": task_info.get("expected_label", "unknown"),
+        "predicted_label": request.prediction.label,
+        "confidence": request.prediction.confidence,
+        "top_k": [{"label": p.label, "confidence": p.confidence} for p in request.prediction.top_k],
+        "inference_ms": request.timing.inference_ms,
+        "total_ms": request.timing.total_ms,
+        "model_load_ms": request.timing.model_load_ms,
+        "timestamp": datetime.utcnow().isoformat(),
+        "correct": request.prediction.label == task_info.get("expected_label"),
+        "proof_hash": request.proof_of_work.hash[:16] + "...",
+    }
+    inference_log.append(inference_record)
+    logger.info(f"Logged inference: {inference_record['predicted_label']} (conf: {inference_record['confidence']:.2f})")
     
     # Update session
     sessions[request.session_id]["status"] = "completed"
@@ -349,7 +389,255 @@ async def get_stats():
         "total_sessions": len(sessions),
         "total_tasks": len(tasks),
         "completed_sessions": len([s for s in sessions.values() if s["status"] == "completed"]),
+        "total_inferences": len(inference_log),
     }
+
+
+@app.get("/api/v1/inferences")
+async def get_inferences(limit: int = 100):
+    """Get inference log data as JSON."""
+    return {
+        "inferences": inference_log[-limit:][::-1],  # Most recent first
+        "total": len(inference_log),
+    }
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard():
+    """ML Inference Dashboard - Shows all classifications done."""
+    
+    # Calculate stats
+    total = len(inference_log)
+    correct = sum(1 for i in inference_log if i.get("correct", False))
+    accuracy = (correct / total * 100) if total > 0 else 0
+    avg_inference_ms = sum(i.get("inference_ms", 0) for i in inference_log) / total if total > 0 else 0
+    avg_confidence = sum(i.get("confidence", 0) for i in inference_log) / total if total > 0 else 0
+    
+    # Build inference rows HTML
+    inference_rows = ""
+    for i, inf in enumerate(reversed(inference_log[-50:])):  # Show last 50
+        correct_badge = '<span class="badge correct">Correct</span>' if inf.get("correct") else '<span class="badge incorrect">Incorrect</span>'
+        top_k_html = ""
+        for pred in inf.get("top_k", [])[:3]:
+            top_k_html += f'<div class="topk-item"><span>{pred["label"]}</span><span>{pred["confidence"]:.1%}</span></div>'
+        
+        inference_rows += f'''
+        <tr>
+            <td>#{total - i}</td>
+            <td><img src="{inf.get("image_url", "")}" alt="sample" class="sample-img" onerror="this.src='https://via.placeholder.com/60x60?text=?'"></td>
+            <td><strong>{inf.get("predicted_label", "?")}</strong></td>
+            <td>{inf.get("expected_label", "?")}</td>
+            <td>
+                <div class="confidence-bar">
+                    <div class="confidence-fill" style="width: {inf.get("confidence", 0) * 100}%"></div>
+                    <span>{inf.get("confidence", 0):.1%}</span>
+                </div>
+            </td>
+            <td>{correct_badge}</td>
+            <td>{inf.get("inference_ms", 0)}ms</td>
+            <td class="topk-cell">{top_k_html}</td>
+            <td class="timestamp">{inf.get("timestamp", "")[:19]}</td>
+        </tr>
+        '''
+    
+    if not inference_rows:
+        inference_rows = '<tr><td colspan="9" class="empty">No inferences yet. Use the frontend to submit some CAPTCHA challenges!</td></tr>'
+    
+    html = f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>ML Inference Dashboard - PoUW CAPTCHA</title>
+        <meta charset="UTF-8">
+        <meta http-equiv="refresh" content="5">
+        <style>
+            * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: #0f172a;
+                color: #e2e8f0;
+                min-height: 100vh;
+                padding: 20px;
+            }}
+            .container {{ max-width: 1400px; margin: 0 auto; }}
+            h1 {{
+                font-size: 28px;
+                margin-bottom: 8px;
+                background: linear-gradient(135deg, #6366f1, #06b6d4);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+            }}
+            .subtitle {{ color: #64748b; margin-bottom: 24px; }}
+            
+            /* Stats Cards */
+            .stats-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 16px;
+                margin-bottom: 24px;
+            }}
+            .stat-card {{
+                background: #1e293b;
+                border-radius: 12px;
+                padding: 20px;
+                border: 1px solid #334155;
+            }}
+            .stat-label {{ color: #64748b; font-size: 13px; margin-bottom: 4px; }}
+            .stat-value {{ font-size: 32px; font-weight: 700; }}
+            .stat-value.green {{ color: #10b981; }}
+            .stat-value.blue {{ color: #3b82f6; }}
+            .stat-value.purple {{ color: #8b5cf6; }}
+            .stat-value.orange {{ color: #f59e0b; }}
+            
+            /* Table */
+            .table-container {{
+                background: #1e293b;
+                border-radius: 12px;
+                border: 1px solid #334155;
+                overflow: hidden;
+            }}
+            .table-header {{
+                padding: 16px 20px;
+                border-bottom: 1px solid #334155;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }}
+            .table-header h2 {{ font-size: 18px; }}
+            .refresh-note {{ color: #64748b; font-size: 12px; }}
+            
+            table {{ width: 100%; border-collapse: collapse; }}
+            th, td {{ padding: 12px 16px; text-align: left; border-bottom: 1px solid #334155; }}
+            th {{ background: #0f172a; color: #94a3b8; font-weight: 500; font-size: 12px; text-transform: uppercase; }}
+            tr:hover {{ background: #334155; }}
+            
+            .sample-img {{ width: 50px; height: 50px; border-radius: 6px; object-fit: cover; }}
+            
+            .confidence-bar {{
+                width: 100px;
+                height: 20px;
+                background: #334155;
+                border-radius: 4px;
+                position: relative;
+                overflow: hidden;
+            }}
+            .confidence-fill {{
+                height: 100%;
+                background: linear-gradient(90deg, #10b981, #34d399);
+                border-radius: 4px;
+            }}
+            .confidence-bar span {{
+                position: absolute;
+                left: 50%;
+                top: 50%;
+                transform: translate(-50%, -50%);
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            
+            .badge {{
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            .badge.correct {{ background: rgba(16, 185, 129, 0.2); color: #10b981; }}
+            .badge.incorrect {{ background: rgba(239, 68, 68, 0.2); color: #ef4444; }}
+            
+            .topk-cell {{ min-width: 150px; }}
+            .topk-item {{
+                display: flex;
+                justify-content: space-between;
+                font-size: 11px;
+                color: #94a3b8;
+                padding: 2px 0;
+            }}
+            
+            .timestamp {{ font-size: 11px; color: #64748b; font-family: monospace; }}
+            .empty {{ text-align: center; padding: 40px; color: #64748b; }}
+            
+            .header-row {{
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                margin-bottom: 24px;
+            }}
+            .api-note {{
+                background: #1e293b;
+                padding: 12px 16px;
+                border-radius: 8px;
+                font-size: 12px;
+                color: #94a3b8;
+                border: 1px solid #334155;
+            }}
+            .api-note code {{
+                background: #0f172a;
+                padding: 2px 6px;
+                border-radius: 4px;
+                color: #06b6d4;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header-row">
+                <div>
+                    <h1>ML Inference Dashboard</h1>
+                    <p class="subtitle">Real-time visibility into CAPTCHA ML classifications</p>
+                </div>
+                <div class="api-note">
+                    API: <code>GET /api/v1/inferences</code> | Auto-refresh: 5s
+                </div>
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Total Inferences</div>
+                    <div class="stat-value blue">{total}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Accuracy Rate</div>
+                    <div class="stat-value green">{accuracy:.1f}%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Avg Inference Time</div>
+                    <div class="stat-value purple">{avg_inference_ms:.0f}ms</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Avg Confidence</div>
+                    <div class="stat-value orange">{avg_confidence:.1%}</div>
+                </div>
+            </div>
+            
+            <div class="table-container">
+                <div class="table-header">
+                    <h2>Recent Inferences</h2>
+                    <span class="refresh-note">Showing last 50 | Page auto-refreshes every 5 seconds</span>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Image</th>
+                            <th>Predicted</th>
+                            <th>Expected</th>
+                            <th>Confidence</th>
+                            <th>Result</th>
+                            <th>Time</th>
+                            <th>Top-K Predictions</th>
+                            <th>Timestamp</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {inference_rows}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </body>
+    </html>
+    '''
+    return html
 
 if __name__ == "__main__":
     import uvicorn
