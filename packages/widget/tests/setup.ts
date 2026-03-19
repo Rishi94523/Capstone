@@ -23,7 +23,7 @@ Object.defineProperty(window, 'matchMedia', {
 Object.defineProperty(global, 'crypto', {
   value: {
     subtle: {
-      digest: vi.fn().mockImplementation(async (algorithm, data) => {
+      digest: vi.fn().mockImplementation(async (_algorithm, _data) => {
         // Simple mock hash
         const mockHash = new Uint8Array(32);
         for (let i = 0; i < 32; i++) {

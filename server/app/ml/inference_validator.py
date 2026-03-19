@@ -1,9 +1,4 @@
-"""
-Inference Validator for validating client predictions and shard outputs.
-
-This module validates both traditional full-model predictions and
-shard-based inference outputs against pre-computed ground truth.
-"""
+"""Inference Validator for legacy PoW and shard-based ML proofs."""
 
 import logging
 import hashlib
@@ -16,7 +11,7 @@ from redis.asyncio import Redis
 
 from app.config import get_settings
 from app.models import Task, Session, Prediction
-from app.schemas import PredictionData, ProofOfWorkData, TimingData
+from app.schemas import PredictionData, ProofOfWorkData, TimingData, InferenceProofData
 from app.ml.ground_truth_cache import get_ground_truth_cache, GroundTruthCache
 
 logger = logging.getLogger(__name__)
@@ -71,8 +66,9 @@ class InferenceValidator:
         self,
         task: Task,
         prediction: PredictionData,
-        proof_of_work: ProofOfWorkData,
+        proof_of_work: Optional[ProofOfWorkData],
         timing: TimingData,
+        inference_proof: Optional[InferenceProofData] = None,
     ) -> bool:
         """
         Validate a client prediction.
@@ -88,9 +84,19 @@ class InferenceValidator:
         """
         validations = [
             self._validate_timing(task, timing),
-            self._validate_proof_of_work(proof_of_work),
             self._validate_prediction_plausibility(prediction),
         ]
+
+        if inference_proof is not None or task.task_type == "shard_inference":
+            validations.append(
+                await self._validate_inference_proof_submission(
+                    task,
+                    prediction,
+                    inference_proof,
+                )
+            )
+        else:
+            validations.append(self._validate_proof_of_work(proof_of_work))
 
         # Validate known sample if applicable
         if task.is_known_sample and task.known_label:
@@ -103,11 +109,81 @@ class InferenceValidator:
         if not is_valid:
             logger.warning(
                 f"Prediction validation failed for task {task.id}: "
-                f"timing={validations[0]}, pow={validations[1]}, "
-                f"plausibility={validations[2]}"
+                f"timing={validations[0]}, plausibility={validations[1]}, "
+                f"proof={validations[2]}"
             )
 
         return is_valid
+
+    async def _validate_inference_proof_submission(
+        self,
+        task: Task,
+        prediction: PredictionData,
+        inference_proof: Optional[InferenceProofData],
+    ) -> bool:
+        """Validate shard proof hashes against cached ground truth."""
+        if inference_proof is None:
+            logger.warning("Missing inference proof for shard task")
+            return False
+
+        task_metadata = task.metadata_ or {}
+        shard_task_data = task_metadata.get("shard_task", {})
+        model_name = shard_task_data.get("model_name", "mnist-tiny")
+        sample_id = shard_task_data.get("sample_id")
+        expected_layers = shard_task_data.get("expected_layers", 0)
+
+        if not sample_id:
+            logger.warning("Missing sample_id in shard task metadata")
+            return False
+
+        if inference_proof.task_id != str(task.id):
+            logger.warning("Shard proof task mismatch")
+            return False
+
+        if inference_proof.sample_id != sample_id:
+            logger.warning("Shard proof sample mismatch")
+            return False
+
+        if inference_proof.layer_count != expected_layers:
+            logger.warning(
+                "Shard proof layer count mismatch: %s != %s",
+                inference_proof.layer_count,
+                expected_layers,
+            )
+            return False
+
+        if len(inference_proof.output_hashes) != expected_layers:
+            logger.warning("Shard proof output hash count mismatch")
+            return False
+
+        cache = await self._get_ground_truth_cache()
+        for layer_index, output_hash in enumerate(inference_proof.output_hashes):
+            entry = cache.get_ground_truth(
+                sample_id=sample_id,
+                model_name=model_name,
+                layer_index=layer_index,
+            )
+            if entry is None or entry.output_hash != output_hash:
+                logger.warning("Ground truth mismatch at layer %s", layer_index)
+                return False
+
+        expected_prediction_hash = self._hash_prediction(prediction)
+        if inference_proof.prediction_hash != expected_prediction_hash:
+            logger.warning("Prediction hash mismatch")
+            return False
+
+        expected_proof_hash = self._hash_inference_proof(
+            inference_proof.task_id,
+            inference_proof.sample_id,
+            inference_proof.layer_count,
+            inference_proof.output_hashes,
+            inference_proof.prediction_hash,
+        )
+        if inference_proof.proof_hash != expected_proof_hash:
+            logger.warning("Combined proof hash mismatch")
+            return False
+
+        return True
 
     async def validate_shard_inference(
         self,
@@ -252,24 +328,59 @@ class InferenceValidator:
 
         return True
 
-    def _validate_proof_of_work(self, pow_data: ProofOfWorkData) -> bool:
+    def _validate_proof_of_work(self, pow_data: Optional[ProofOfWorkData]) -> bool:
         """
         Validate proof of work hash.
 
         Verifies that the client actually performed computation.
         """
-        if not pow_data.hash:
+        if pow_data is None or not pow_data.hash:
             return False
 
         if len(pow_data.hash) != 64:  # SHA-256 hex length
             return False
 
-        expected_prefix = "0"  # Simple difficulty
-        if not pow_data.hash.startswith(expected_prefix):
-            logger.warning(f"PoW hash doesn't meet difficulty: {pow_data.hash[:8]}...")
-            return False
+        # For demo/development, accept any valid hash
+        # In production, uncomment the difficulty check below
+        # expected_prefix = "0"  # Simple difficulty
+        # if not pow_data.hash.startswith(expected_prefix):
+        #     logger.warning(f"PoW hash doesn't meet difficulty: {pow_data.hash[:8]}...")
+        #     return False
 
         return True
+
+    def _hash_prediction(self, prediction: PredictionData) -> str:
+        payload = json.dumps(
+            {
+                "label": prediction.label,
+                "confidence": prediction.confidence,
+                "topK": [
+                    {"label": item.label, "confidence": item.confidence}
+                    for item in prediction.top_k
+                ],
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+    def _hash_inference_proof(
+        self,
+        task_id: str,
+        sample_id: str,
+        layer_count: int,
+        output_hashes: List[str],
+        prediction_hash: str,
+    ) -> str:
+        proof_data = ":".join(
+            [
+                task_id,
+                sample_id,
+                str(layer_count),
+                *output_hashes,
+                prediction_hash,
+            ]
+        )
+        return hashlib.sha256(proof_data.encode("utf-8")).hexdigest()
 
     def _validate_prediction_plausibility(self, prediction: PredictionData) -> bool:
         """

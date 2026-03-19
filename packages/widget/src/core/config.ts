@@ -2,7 +2,7 @@
  * Configuration management for PoUW CAPTCHA Widget
  */
 
-import type { CaptchaConfig } from '../types';
+import type { CaptchaConfig, CaptchaError, VerificationData } from '../types';
 
 /**
  * Default configuration values
@@ -49,9 +49,9 @@ export class Config {
   private config: Required<CaptchaConfig>;
   private callbacks: {
     onSuccess?: (token: string) => void;
-    onError?: (error: unknown) => void;
+    onError?: (error: CaptchaError) => void;
     onExpire?: () => void;
-    onVerificationRequired?: (data: unknown) => void;
+    onVerificationRequired?: (data: VerificationData) => void;
   };
 
   constructor(userConfig: CaptchaConfig) {

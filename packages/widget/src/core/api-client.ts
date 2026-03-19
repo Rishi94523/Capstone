@@ -30,7 +30,7 @@ export class ApiClient {
    * Initialize a new CAPTCHA session
    */
   async initSession(metadata: ClientMetadata): Promise<InitResponse> {
-    const response = await this.request<InitResponse>('/captcha/init', {
+    const response = await this.request<Record<string, unknown>>('/captcha/init', {
       method: 'POST',
       body: JSON.stringify({
         site_key: this.config.get('siteKey'),
@@ -44,7 +44,7 @@ export class ApiClient {
       }),
     });
 
-    return response;
+    return this.normalizeInitResponse(response);
   }
 
   /**
@@ -57,7 +57,7 @@ export class ApiClient {
     proofOfWork: ProofOfWork,
     timing: TimingData
   ): Promise<SubmitResponse> {
-    const response = await this.request<SubmitResponse>('/captcha/submit', {
+    const response = await this.request<Record<string, unknown>>('/captcha/submit', {
       method: 'POST',
       body: JSON.stringify({
         session_id: sessionId,
@@ -84,7 +84,7 @@ export class ApiClient {
       }),
     });
 
-    return response;
+    return this.normalizeSubmitResponse(response);
   }
 
   /**
@@ -95,7 +95,7 @@ export class ApiClient {
     verificationId: string,
     response: VerificationResponse
   ): Promise<VerifyResponse> {
-    const result = await this.request<VerifyResponse>('/captcha/verify', {
+    const result = await this.request<Record<string, unknown>>('/captcha/verify', {
       method: 'POST',
       body: JSON.stringify({
         session_id: sessionId,
@@ -106,7 +106,7 @@ export class ApiClient {
       }),
     });
 
-    return result;
+    return this.normalizeVerifyResponse(result);
   }
 
   /**
@@ -119,7 +119,7 @@ export class ApiClient {
     proof: InferenceProof,
     timing: TimingData
   ): Promise<SubmitResponse> {
-    const response = await this.request<SubmitResponse>('/captcha/submit', {
+    const response = await this.request<Record<string, unknown>>('/captcha/submit', {
       method: 'POST',
       body: JSON.stringify({
         session_id: sessionId,
@@ -148,7 +148,7 @@ export class ApiClient {
       }),
     });
 
-    return response;
+    return this.normalizeSubmitResponse(response);
   }
 
   /**
@@ -237,6 +237,62 @@ export class ApiClient {
 
       throw new ApiError(0, 'Unknown error', {});
     }
+  }
+
+  private normalizeInitResponse(response: Record<string, unknown>): InitResponse {
+    return this.normalizeKeys(response) as InitResponse;
+  }
+
+  private normalizeVerifyResponse(
+    response: Record<string, unknown>
+  ): VerifyResponse {
+    return this.normalizeKeys(response) as VerifyResponse;
+  }
+
+  private normalizeSubmitResponse(
+    response: Record<string, unknown>
+  ): SubmitResponse {
+    const normalized = this.normalizeKeys(response) as SubmitResponse;
+    const verification = normalized.verification as
+      | (Record<string, unknown> & {
+          displayData?: { type?: string; url?: string; content?: string };
+        })
+      | undefined;
+
+    if (verification?.displayData) {
+      normalized.verification = {
+        ...(verification as object),
+        displayType: verification.displayData.type || 'image',
+        displayContent:
+          verification.displayData.url || verification.displayData.content || '',
+      } as SubmitResponse['verification'];
+    }
+
+    return normalized;
+  }
+
+  private normalizeKeys(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.normalizeKeys(item));
+    }
+
+    if (value && typeof value === 'object') {
+      const result: Record<string, unknown> = {};
+      for (const [key, nestedValue] of Object.entries(
+        value as Record<string, unknown>
+      )) {
+        result[this.toCamelCase(key)] = this.normalizeKeys(nestedValue);
+      }
+      return result;
+    }
+
+    return value;
+  }
+
+  private toCamelCase(value: string): string {
+    return value.replace(/_([a-z])/g, (_, letter: string) =>
+      letter.toUpperCase()
+    );
   }
 }
 

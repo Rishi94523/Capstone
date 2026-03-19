@@ -101,7 +101,7 @@ export interface InferenceProof {
  */
 export interface CaptchaConfig {
   /** Server API endpoint */
-  apiUrl: string;
+  apiUrl?: string;
   /** Site API key (public) */
   siteKey: string;
   /** Container element or selector */

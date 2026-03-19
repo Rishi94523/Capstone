@@ -1,14 +1,9 @@
-"""
-Task Coordinator for assigning ML tasks to sessions.
-
-This module coordinates task assignment with support for shard-based
-federated inference, replacing the previous full-model approach.
-"""
+"""Task Coordinator for assigning shard-based ML CAPTCHA tasks."""
 
 import logging
 import random
 import uuid
-from typing import Tuple, Optional, Dict, Any
+from typing import Tuple, Optional
 from dataclasses import dataclass
 
 from sqlalchemy import select, func
@@ -17,7 +12,8 @@ from redis.asyncio import Redis
 
 from app.config import get_settings
 from app.models import Sample, Task
-from app.ml.shard_manager import get_shard_manager, ShardAssignment
+from app.ml.mnist_tiny import encode_input_data, sample_to_input_vector
+from app.ml.shard_manager import get_shard_manager
 from app.ml.ground_truth_cache import get_ground_truth_cache
 
 logger = logging.getLogger(__name__)
@@ -28,15 +24,18 @@ settings = get_settings()
 class ShardTask:
     """Task configuration for shard-based inference."""
     task_id: uuid.UUID
+    sample_id: str
     model_name: str
     model_version: str
     shards: list
-    input_data: list
+    input_data: str
     input_shape: list
     expected_layers: int
     difficulty: str
     expected_time_ms: int
     ground_truth_key: str
+    labels: list
+    model_checksum: str
 
 
 class TaskCoordinator:
@@ -54,7 +53,7 @@ class TaskCoordinator:
     DIFFICULTY_TIERS = {
         "normal": {
             "risk_score_max": 0.3,
-            "inference_time_ms": 20,
+            "inference_time_ms": 60,
             "task_type": "shard_inference",
             "verification_probability": 0.2,
             "shard_difficulty": "easy",
@@ -62,19 +61,19 @@ class TaskCoordinator:
         },
         "suspicious": {
             "risk_score_max": 0.7,
-            "inference_time_ms": 100,
+            "inference_time_ms": 120,
             "task_type": "shard_inference",
             "verification_probability": 0.5,
             "shard_difficulty": "medium",
-            "layers": 3,
+            "layers": 2,
         },
         "bot_like": {
             "risk_score_max": 1.0,
-            "inference_time_ms": 200,
+            "inference_time_ms": 180,
             "task_type": "shard_inference",
             "verification_probability": 1.0,
             "shard_difficulty": "hard",
-            "layers": 6,
+            "layers": 3,
         },
     }
 
@@ -119,8 +118,9 @@ class TaskCoordinator:
     async def assign_shard_task(
         self,
         session_id: uuid.UUID,
+        sample: Sample,
         difficulty: str,
-    ) -> ShardTask:
+    ) -> Tuple[ShardTask, Task]:
         """
         Assign a shard-based inference task to a session.
 
@@ -131,47 +131,69 @@ class TaskCoordinator:
         Returns:
             ShardTask configuration
         """
-        tier_config = self.DIFFICULTY_TIERS.get(difficulty, self.DIFFICULTY_TIERS["normal"])
+        tier_config = self.DIFFICULTY_TIERS.get(
+            difficulty, self.DIFFICULTY_TIERS["normal"]
+        )
         shard_difficulty = tier_config.get("shard_difficulty", "easy")
-
-        # Get shard manager
         shard_manager = await self._get_shard_manager()
 
-        # Generate task ID
         task_id = uuid.uuid4()
-
-        # Get available models
         available_models = shard_manager.get_available_models()
-        model_name = self.DEFAULT_MODEL if self.DEFAULT_MODEL in available_models else available_models[0] if available_models else self.DEFAULT_MODEL
+        model_name = (
+            self.DEFAULT_MODEL
+            if self.DEFAULT_MODEL in available_models
+            else available_models[0]
+            if available_models
+            else self.DEFAULT_MODEL
+        )
 
-        # Assign shards based on difficulty
+        input_data = sample_to_input_vector(sample.data_blob, sample.data_url)
+
         shard_assignment = await shard_manager.assign_shards(
             task_id=str(task_id),
             model_name=model_name,
-            difficulty=shard_difficulty
+            difficulty=shard_difficulty,
+            input_sample=input_data,
+            sample_id=str(sample.id),
         )
 
-        # Create ground truth key for validation
-        input_hash = hash(tuple(shard_assignment.input_data)) % (2**32)
-        ground_truth_key = f"{model_name}:{input_hash}:{shard_assignment.expected_layers - 1}"
+        ground_truth_key = (
+            f"{model_name}:{sample.id}:{shard_assignment.expected_layers - 1}"
+        )
 
-        # Create shard task
+        outputs = shard_manager.execute_assignment(shard_assignment)
+        cache = await self._get_ground_truth_cache()
+        for layer_index, output in enumerate(outputs):
+            await cache.add_ground_truth(
+                sample_id=str(sample.id),
+                model_name=model_name,
+                model_version=shard_assignment.model_version,
+                layer_index=layer_index,
+                layer_name=shard_assignment.shards[layer_index].name,
+                input_data=shard_assignment.input_data,
+                output_data=output,
+                store_full_output=(layer_index == len(outputs) - 1),
+            )
+
         shard_task = ShardTask(
             task_id=task_id,
+            sample_id=str(sample.id),
             model_name=model_name,
             model_version=shard_assignment.model_version,
             shards=[s.to_dict() for s in shard_assignment.shards],
-            input_data=shard_assignment.input_data,
+            input_data=encode_input_data(shard_assignment.input_data),
             input_shape=shard_assignment.input_shape,
             expected_layers=shard_assignment.expected_layers,
             difficulty=shard_difficulty,
             expected_time_ms=tier_config["inference_time_ms"],
-            ground_truth_key=ground_truth_key
+            ground_truth_key=ground_truth_key,
+            labels=shard_assignment.labels,
+            model_checksum=shard_assignment.model_checksum,
         )
 
-        # Store task in database
         task = Task(
             session_id=session_id,
+            sample_id=sample.id,
             task_type=tier_config["task_type"],
             expected_time_ms=tier_config["inference_time_ms"],
             is_known_sample=False,
@@ -179,11 +201,14 @@ class TaskCoordinator:
             metadata_={
                 "shard_task": {
                     "task_id": str(shard_task.task_id),
+                    "sample_id": str(sample.id),
                     "model_name": shard_task.model_name,
                     "model_version": shard_task.model_version,
                     "expected_layers": shard_task.expected_layers,
                     "difficulty": shard_task.difficulty,
-                    "ground_truth_key": shard_task.ground_truth_key
+                    "ground_truth_key": shard_task.ground_truth_key,
+                    "labels": shard_task.labels,
+                    "model_checksum": shard_task.model_checksum,
                 }
             }
         )
@@ -196,13 +221,13 @@ class TaskCoordinator:
             f"(difficulty: {shard_difficulty})"
         )
 
-        return shard_task
+        return shard_task, task
 
     async def assign_task(
         self,
         session_id: uuid.UUID,
         difficulty: str,
-    ) -> Tuple[Task, Sample]:
+    ) -> Tuple[Task, Sample, ShardTask]:
         """
         Assign an ML task to a session.
 
@@ -213,43 +238,26 @@ class TaskCoordinator:
         Returns:
             Tuple of (Task, Sample)
         """
-        tier_config = self.DIFFICULTY_TIERS.get(difficulty, self.DIFFICULTY_TIERS["normal"])
-
-        # Determine if we should use a known sample (honeypot)
         use_known_sample = random.random() < settings.known_sample_rate
 
-        # Select sample
         sample = await self._select_sample(use_known_sample)
 
         if not sample:
-            # Create a dummy sample if none exist
             sample = await self._create_dummy_sample()
 
-        # Create task with shard-based configuration
-        task = Task(
+        shard_task, task = await self.assign_shard_task(
             session_id=session_id,
-            sample_id=sample.id,
-            task_type=tier_config["task_type"],
-            expected_time_ms=tier_config["inference_time_ms"],
-            is_known_sample=use_known_sample,
-            known_label=sample.metadata_.get("known_label") if use_known_sample else None,
-            status="assigned",
-            metadata_={
-                "shard_difficulty": tier_config.get("shard_difficulty", "easy"),
-                "expected_layers": tier_config.get("layers", 1),
-            }
+            sample=sample,
+            difficulty=difficulty,
         )
+        task.is_known_sample = use_known_sample
+        task.known_label = sample.metadata_.get("known_label") if use_known_sample else None
 
-        self.db.add(task)
-
-        # Increment times served
         sample.times_served += 1
-
         await self.db.flush()
 
         logger.debug(f"Assigned task {task.id} with sample {sample.id}")
-
-        return task, sample
+        return task, sample, shard_task
 
     async def _select_sample(self, use_known: bool = False) -> Optional[Sample]:
         """

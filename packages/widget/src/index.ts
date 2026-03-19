@@ -34,8 +34,10 @@ export type {
   CaptchaConfig,
   CaptchaResult,
   CaptchaTask,
+  CaptchaError,
   Prediction,
   VerificationResponse,
+  WidgetState,
   MLModel,
   RuntimeType,
 } from './types';

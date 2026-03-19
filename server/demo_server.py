@@ -10,11 +10,12 @@ import random
 import json
 from datetime import datetime, timedelta
 from typing import Optional
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from pydantic import BaseModel, Field, ConfigDict
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -392,7 +393,6 @@ async def get_stats():
         "total_inferences": len(inference_log),
     }
 
-
 @app.get("/api/v1/inferences")
 async def get_inferences(limit: int = 100):
     """Get inference log data as JSON."""
@@ -638,6 +638,29 @@ async def dashboard():
     </html>
     '''
     return html
+
+# Serve static design files
+FRONTEND_DIR = Path(__file__).parent.parent / "demo" / "frontend"
+
+@app.get("/1")
+async def design_1():
+    return FileResponse(FRONTEND_DIR / "design1.html")
+
+@app.get("/2")
+async def design_2():
+    return FileResponse(FRONTEND_DIR / "design2.html")
+
+@app.get("/3")
+async def design_3():
+    return FileResponse(FRONTEND_DIR / "design3.html")
+
+@app.get("/4")
+async def design_4():
+    return FileResponse(FRONTEND_DIR / "design4.html")
+
+@app.get("/5")
+async def design_5():
+    return FileResponse(FRONTEND_DIR / "design5.html")
 
 if __name__ == "__main__":
     import uvicorn

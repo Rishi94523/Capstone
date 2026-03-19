@@ -106,17 +106,14 @@ export class PoUWCaptcha {
       });
 
       // Step 2-4: Execute task (ShardTask or legacy CaptchaTask)
-      let prediction: Prediction;
       let submitResponse: import('../types').SubmitResponse;
 
       if (this.session.isShardTask()) {
         // Shard-based execution flow
-        ({ prediction, submitResponse } =
-          await this.executeShardTaskFlow(timer));
+        ({ submitResponse } = await this.executeShardTaskFlow(timer));
       } else {
         // Legacy CaptchaTask flow
-        ({ prediction, submitResponse } =
-          await this.executeLegacyTaskFlow(timer));
+        ({ submitResponse } = await this.executeLegacyTaskFlow(timer));
       }
 
       // Step 6: Handle response
@@ -194,8 +191,10 @@ export class PoUWCaptcha {
     // Step 2: Set up progress callback
     this.widget.setState('processing');
     this.widget.setMessage('Running security check...');
+    const externalProgress = shardTask.onProgress;
     shardTask.onProgress = (progress) => {
       this.widget.setProgress(progress * 100);
+      externalProgress?.(progress);
     };
 
     // Step 3: Execute shard task
@@ -318,11 +317,14 @@ export class PoUWCaptcha {
     task: CaptchaTask
   ): Promise<Float32Array | ImageData | string> {
     if (task.sampleType === 'image') {
-      // Decode base64 image
-      if (task.sampleData.startsWith('data:')) {
+      if (task.sampleData && task.sampleData.startsWith('data:')) {
         return await this.decodeImageData(task.sampleData);
-      } else if (task.sampleUrl) {
+      }
+      if (task.sampleUrl) {
         return await this.fetchImageData(task.sampleUrl);
+      }
+      if (!task.sampleData) {
+        throw new Error('Missing image sample data');
       }
       return await this.decodeImageData(
         `data:image/jpeg;base64,${task.sampleData}`

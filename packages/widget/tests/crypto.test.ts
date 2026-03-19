@@ -2,8 +2,9 @@
  * Tests for cryptographic utilities
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { generatePoWHash, verifyPoWHash, generateToken } from '../src/utils/crypto';
+import { describe, it, expect } from 'vitest';
+import { generatePoWHash, generateToken } from '../src/utils/crypto';
+import { PerformanceTimer } from '../src/utils/timing';
 
 describe('Crypto Utilities', () => {
   describe('generatePoWHash', () => {
@@ -62,8 +63,6 @@ describe('Crypto Utilities', () => {
 });
 
 describe('Performance Timer', () => {
-  const { PerformanceTimer } = require('../src/utils/timing');
-
   it('should track timing correctly', () => {
     const timer = new PerformanceTimer();
     

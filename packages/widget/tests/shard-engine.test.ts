@@ -2,7 +2,7 @@
  * Tests for Shard Inference Engine
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ShardInferenceEngine, isShardEngineSupported, ShardExecutionResult } from '../src/ml/shard-engine';
+import { ShardInferenceEngine, isShardEngineSupported } from '../src/ml/shard-engine';
 import { Config } from '../src/core/config';
 import type { ShardTask, ModelShard, NeuralLayerConfig } from '../src/types';
 

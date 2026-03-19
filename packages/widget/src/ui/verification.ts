@@ -6,7 +6,6 @@ import type { VerificationData, VerificationResponse } from '../types';
 import {
   announceToScreenReader,
   trapFocus,
-  handleEscapeKey,
   createAccessibleButton,
 } from '../utils/accessibility';
 import { PerformanceTimer } from '../utils/timing';

@@ -218,7 +218,7 @@ export class TFJSRuntime {
 
       // Compute gradients
       const gradientFn = tf.valueAndGrads(
-        (inputs: tf.Tensor[]) => {
+        (...inputs: tf.Tensor[]) => {
           const pred = model.predict(inputs[0]) as tf.Tensor;
           return tf.losses.softmaxCrossEntropy(targetTensor, pred);
         }

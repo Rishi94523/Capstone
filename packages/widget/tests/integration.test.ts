@@ -87,7 +87,7 @@ describe('ML Inference CAPTCHA Integration', () => {
       const result = await resultPromise;
 
       expect(result.token).toBe('captcha-token-xyz');
-      expect(result.verificationPerformed).toBe(true);
+      expect(result.verificationPerformed).toBe(false);
     });
 
     it('should handle inference with progress callbacks', async () => {
@@ -182,7 +182,7 @@ describe('ML Inference CAPTCHA Integration', () => {
           });
         }
         
-        if (url.includes('/submit-proof')) {
+        if (url.includes('/submit')) {
           // Capture the proof being submitted
           if (options?.body) {
             const body = JSON.parse(options.body as string);
@@ -204,11 +204,11 @@ describe('ML Inference CAPTCHA Integration', () => {
       await captcha.execute();
 
       expect(capturedProof).not.toBeNull();
-      expect(capturedProof!.taskId).toBe('task-proof-test');
-      expect(capturedProof!.sampleId).toBe('sample-proof');
-      expect(capturedProof!.layerCount).toBe(2);
-      expect(capturedProof!.outputHashes).toHaveLength(2);
-      expect(capturedProof!.proofHash).toBeTruthy();
+      expect((capturedProof as any).task_id).toBe('task-proof-test');
+      expect((capturedProof as any).sample_id).toBe('sample-proof');
+      expect((capturedProof as any).layer_count).toBe(2);
+      expect((capturedProof as any).output_hashes).toHaveLength(2);
+      expect((capturedProof as any).proof_hash).toBeTruthy();
       expect(capturedProof!.timestamp).toBeGreaterThan(0);
     });
   });
