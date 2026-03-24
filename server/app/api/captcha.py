@@ -257,6 +257,18 @@ async def submit_captcha(
             inference_log.pop(0)
         logger.info(f"Logged inference: {inference_record['predicted_label']} (conf: {inference_record['confidence']:.2f})")
 
+        if not is_valid:
+            session.status = "failed"
+            task.status = "failed"
+            await db.commit()
+
+            logger.warning(f"CAPTCHA validation failed: {session.id}")
+
+            return CaptchaSubmitResponse(
+                success=False,
+                requires_verification=False,
+            )
+
         # Determine if verification is needed
         requires_verification = await validator.should_require_verification(
             session=session,

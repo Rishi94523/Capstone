@@ -842,16 +842,14 @@
     </div>
 
     <script>
-      // Configuration
       const POUW_CONFIG = {
-        apiUrl: 'http://localhost:8080/api/v1',
+        apiUrl: `${window.location.origin}/api/v1`,
         siteKey: 'pk_demo_1234567890',
       };
 
       let captchaToken = null;
       let sessionData = null;
 
-      // Elements
       const verifyBtn = document.getElementById('verify-btn');
       const statusEl = document.getElementById('captcha-status');
       const submitBtn = document.getElementById('submit-btn');
@@ -860,207 +858,384 @@
       const captchaBox = document.getElementById('captcha-box');
       const neuralAnim = document.getElementById('neural-anim');
 
-      // Initialize
       verifyBtn.addEventListener('click', runCaptcha);
 
       async function runCaptcha() {
+        const totalStart = performance.now();
         try {
+          resetVisualState();
           verifyBtn.disabled = true;
           verifyBtn.innerHTML =
             '<span class="icon">&#8987;</span><span>Processing...</span>';
           progressContainer.classList.add('active');
           neuralAnim.style.display = 'none';
 
-          // Step 1: Initialize session
           setStep(1, 'active');
-          updateProgress(15, 'Initializing secure session...');
+          updateProgress(10, 'Initializing secure session...');
 
-          const initResponse = await fetch(
-            `${POUW_CONFIG.apiUrl}/captcha/init`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                site_key: POUW_CONFIG.siteKey,
-                client_metadata: {
-                  user_agent: navigator.userAgent,
-                  language: navigator.language || 'en-US',
-                  timezone:
-                    Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-                  screen_width: window.screen.width,
-                  screen_height: window.screen.height,
-                },
-              }),
-            }
-          );
+          const initStart = performance.now();
+          sessionData = await postJson(`${POUW_CONFIG.apiUrl}/captcha/init`, {
+            siteKey: POUW_CONFIG.siteKey,
+            clientMetadata: {
+              userAgent: navigator.userAgent,
+              language: navigator.language || 'en-US',
+              timezone:
+                Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+              screenWidth: window.screen.width,
+              screenHeight: window.screen.height,
+            },
+          });
+          const initMs = Math.round(performance.now() - initStart);
 
-          if (!initResponse.ok) {
-            throw new Error('Failed to initialize session');
+          setStep(1, 'done');
+          setStep(2, 'active');
+          updateProgress(28, 'Loading assigned model shards...');
+          await sleep(120);
+
+          const task = sessionData.task;
+          if (!task || !task.shards) {
+            throw new Error('Server did not return a shard task');
           }
 
-          sessionData = await initResponse.json();
-          console.log('Session initialized:', sessionData);
-          setStep(1, 'done');
-
-          // Step 2: Load model
-          setStep(2, 'active');
-          updateProgress(35, 'Loading neural network model...');
-          await sleep(500);
           setStep(2, 'done');
-
-          // Step 3: Run inference
           setStep(3, 'active');
-          updateProgress(60, 'Running ML inference (Conv2D, Dense)...');
-          await sleep(700);
+          updateProgress(48, `Running ${task.expectedLayers} layers of ML inference...`);
 
-          // Simulate actual inference work
-          updateProgress(75, 'Computing layer outputs...');
-          await sleep(400);
+          const inferenceStart = performance.now();
+          const execution = await executeShardTask(task, (progress) => {
+            updateProgress(48 + Math.round(progress * 30), 'Computing layer outputs...');
+          });
+          const inferenceMs = Math.max(1, Math.round(performance.now() - inferenceStart));
+
           setStep(3, 'done');
-
-          // Step 4: Submit verification
           setStep(4, 'active');
-          updateProgress(90, 'Generating cryptographic proof...');
+          updateProgress(84, 'Submitting proof of useful work...');
 
-          const submitResponse = await fetch(
-            `${POUW_CONFIG.apiUrl}/captcha/submit`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                session_id: sessionData.session_id,
-                task_id: sessionData.task.task_id,
-                prediction: {
-                  label: 'cat',
-                  confidence: 0.92,
-                  top_k: [
-                    { label: 'cat', confidence: 0.92 },
-                    { label: 'dog', confidence: 0.05 },
-                    { label: 'bird', confidence: 0.02 },
-                    { label: 'airplane', confidence: 0.01 },
-                    { label: 'automobile', confidence: 0.0 },
-                  ],
-                },
-                proof_of_work: {
-                  hash: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
-                  nonce: Math.floor(Math.random() * 1000000),
-                  model_checksum: 'abc123def456',
-                  input_hash:
-                    'b1a2c3d4e5f6b1a2c3d4e5f6b1a2c3d4e5f6b1a2c3d4e5f6b1a2c3d4e5f6b1a2',
-                  output_hash:
-                    'c1d2e3f4a5b6c1d2e3f4a5b6c1d2e3f4a5b6c1d2e3f4a5b6c1d2e3f4a5b6c1d2',
-                },
-                timing: {
-                  model_load_ms: 120,
-                  inference_ms: 42,
-                  total_ms: 156,
-                  started_at: Date.now() - 156,
-                  completed_at: Date.now(),
-                },
-              }),
-            }
-          );
+          const submitResponse = await postJson(`${POUW_CONFIG.apiUrl}/captcha/submit`, {
+            sessionId: sessionData.sessionId,
+            taskId: task.taskId,
+            prediction: {
+              label: execution.prediction.label,
+              confidence: execution.prediction.confidence,
+              topK: execution.prediction.topK,
+            },
+            proof: {
+              taskId: execution.proof.taskId,
+              sampleId: execution.proof.sampleId,
+              layerCount: execution.proof.layerCount,
+              outputHashes: execution.proof.outputHashes,
+              predictionHash: execution.proof.predictionHash,
+              proofHash: execution.proof.proofHash,
+              timestamp: execution.proof.timestamp,
+            },
+            timing: {
+              modelLoadMs: initMs,
+              inferenceMs,
+              totalMs: Math.max(1, Math.round(performance.now() - totalStart)),
+              startedAt: Date.now() - Math.max(1, Math.round(performance.now() - totalStart)),
+              completedAt: Date.now(),
+            },
+          });
+
+          if (submitResponse.requiresVerification && submitResponse.verification) {
+            updateProgress(95, 'Human verification required...');
+            const verificationToken = await handleVerification(submitResponse.verification);
+            captchaToken = verificationToken;
+          } else if (submitResponse.success === false) {
+            throw new Error('CAPTCHA proof validation failed. Please refresh and try again.');
+          } else {
+            captchaToken = submitResponse.captchaToken;
+          }
+
+          if (!captchaToken) {
+            throw new Error('CAPTCHA completed without a token');
+          }
 
           updateProgress(100, 'Verification complete!');
           setStep(4, 'done');
 
-          // Success!
-          captchaToken = sessionData.session_id;
-
-          setTimeout(() => {
-            verifyBtn.innerHTML =
-              '<span class="icon">&#10003;</span><span>Verified</span>';
-            verifyBtn.classList.add('success');
-            captchaBox.classList.add('verified');
-            statusEl.textContent =
-              'Verification successful! You can submit the form.';
-            statusEl.classList.add('success');
-            submitBtn.disabled = false;
-            progressContainer.classList.remove('active');
-          }, 300);
+          verifyBtn.innerHTML =
+            '<span class="icon">&#10003;</span><span>Verified</span>';
+          verifyBtn.classList.add('success');
+          captchaBox.classList.add('verified');
+          statusEl.textContent =
+            `Verified as "${execution.prediction.label}" and logged to dashboard.`;
+          statusEl.classList.add('success');
+          submitBtn.disabled = false;
         } catch (error) {
           console.error('CAPTCHA failed:', error);
+          verifyBtn.disabled = false;
+          verifyBtn.innerHTML =
+            '<span class="icon">&#8635;</span><span>Try Again</span>';
+          statusEl.textContent = `Verification failed: ${error.message}`;
+          statusEl.classList.add('error');
+          neuralAnim.style.display = 'block';
+        }
+      }
 
-          // Fallback to demo mode
-          if (
-            error.message.includes('Failed to fetch') ||
-            error.message.includes('NetworkError')
-          ) {
-            updateProgress(100, 'Using demo mode...');
-            await sleep(500);
+      async function handleVerification(verification) {
+        const response = window.confirm(
+          `${verification.prompt}\n\nPress OK for "${verification.predictedLabel}", or Cancel to choose a different label.`
+        )
+          ? { response: 'confirm' }
+          : {
+              response: 'correct',
+              correctedLabel: promptForCorrection(verification),
+            };
 
-            captchaToken = 'demo_offline_' + Date.now();
-            verifyBtn.innerHTML =
-              '<span class="icon">&#10003;</span><span>Verified (Demo)</span>';
-            verifyBtn.classList.add('success');
-            captchaBox.classList.add('verified');
-            statusEl.textContent =
-              'Demo mode - Start server for full experience';
-            statusEl.classList.add('warning');
-            submitBtn.disabled = false;
-            progressContainer.classList.remove('active');
-          } else {
-            verifyBtn.disabled = false;
-            verifyBtn.innerHTML =
-              '<span class="icon">&#8635;</span><span>Try Again</span>';
-            statusEl.textContent = 'Verification failed: ' + error.message;
-            statusEl.classList.add('error');
-            progressContainer.classList.remove('active');
-            neuralAnim.style.display = 'block';
+        const verifyResult = await postJson(`${POUW_CONFIG.apiUrl}/captcha/verify`, {
+          sessionId: sessionData.sessionId,
+          verificationId: verification.verificationId,
+          response: response.response,
+          correctedLabel: response.correctedLabel,
+          responseTimeMs: 800,
+        });
+
+        return verifyResult.captchaToken;
+      }
+
+      function promptForCorrection(verification) {
+        const options = verification.options
+          .filter((option) => option.id !== 'confirm')
+          .map((option) => option.label);
+        const fallback = verification.predictedLabel;
+        const correction = window.prompt(
+          `Enter the correct label.\nSuggested labels: ${options.join(', ') || '0-9'}`,
+          fallback
+        );
+        return correction && correction.trim() ? correction.trim() : fallback;
+      }
+
+      async function executeShardTask(task, onProgress) {
+        const layers = task.shards.flatMap((shard) => shard.layers || []);
+        const input = decodeInput(task.inputData);
+        const layerOutputs = [];
+        let currentOutput = input;
+
+        for (let index = 0; index < layers.length; index++) {
+          currentOutput = forwardDenseLayer(currentOutput, layers[index]);
+          layerOutputs.push(currentOutput);
+          onProgress((index + 1) / layers.length);
+          await sleep(80);
+        }
+
+        const prediction = buildPrediction(currentOutput, task.labels || []);
+        const outputHashes = [];
+        for (const output of layerOutputs) {
+          outputHashes.push(await hashTensor(output));
+        }
+
+        const predictionPayload = JSON.stringify({
+          label: prediction.label,
+          confidence: prediction.confidence,
+          topK: prediction.topK,
+        });
+        const predictionHash = await hashText(predictionPayload);
+        const proofHash = await hashText(
+          [
+            task.taskId,
+            task.sampleId,
+            String(layerOutputs.length),
+            ...outputHashes,
+            predictionHash,
+          ].join(':')
+        );
+
+        return {
+          prediction,
+          proof: {
+            taskId: task.taskId,
+            sampleId: task.sampleId,
+            layerCount: layerOutputs.length,
+            outputHashes,
+            predictionHash,
+            proofHash,
+            timestamp: Date.now(),
+          },
+        };
+      }
+
+      function decodeInput(base64Data) {
+        const binary = atob(base64Data.replace(/^data:.*;base64,/, ''));
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        return new Float32Array(bytes.buffer);
+      }
+
+      function forwardDenseLayer(input, layer) {
+        const inputSize = layer.inputShape[layer.inputShape.length - 1];
+        const outputSize = layer.outputShape[layer.outputShape.length - 1];
+        const output = new Float32Array(outputSize);
+
+        for (let out = 0; out < outputSize; out++) {
+          let sum = layer.biases[out];
+          for (let index = 0; index < inputSize; index++) {
+            sum += input[index] * layer.weights[out * inputSize + index];
           }
+          output[out] = applyActivation(sum, layer.activation);
+        }
+
+        if (layer.activation === 'softmax') {
+          return softmax(output);
+        }
+
+        return output;
+      }
+
+      function applyActivation(value, activation) {
+        if (activation === 'relu') return Math.max(0, value);
+        if (activation === 'sigmoid') return 1 / (1 + Math.exp(-value));
+        if (activation === 'tanh') return Math.tanh(value);
+        return value;
+      }
+
+      function softmax(values) {
+        let max = values[0];
+        for (let i = 1; i < values.length; i++) {
+          if (values[i] > max) max = values[i];
+        }
+        const exponentials = new Float32Array(values.length);
+        let total = 0;
+        for (let i = 0; i < values.length; i++) {
+          exponentials[i] = Math.exp(values[i] - max);
+          total += exponentials[i];
+        }
+        for (let i = 0; i < values.length; i++) {
+          exponentials[i] = exponentials[i] / total;
+        }
+        return exponentials;
+      }
+
+      function buildPrediction(output, labels) {
+        const normalized = normalizeConfidences(output);
+        const useClassificationLabels = labels.length === normalized.length;
+        const entries = Array.from(normalized).map((value, index) => ({
+          index,
+          value,
+          label: useClassificationLabels ? labels[index] : `feature_${index}`,
+        }));
+        entries.sort((left, right) => right.value - left.value);
+        const topK = entries.slice(0, Math.min(5, entries.length)).map((entry) => ({
+          label: entry.label,
+          confidence: Math.round(entry.value * 1000) / 1000,
+        }));
+        return {
+          label: topK[0].label,
+          confidence: topK[0].confidence,
+          topK,
+        };
+      }
+
+      function normalizeConfidences(values) {
+        if (!values.length) {
+          return values;
+        }
+
+        let min = values[0];
+        let max = values[0];
+        let sum = 0;
+        for (let i = 0; i < values.length; i++) {
+          const value = values[i];
+          if (value < min) min = value;
+          if (value > max) max = value;
+          sum += value;
+        }
+
+        const alreadyProbabilities =
+          min >= 0 &&
+          max <= 1 &&
+          Math.abs(sum - 1) < 1e-3;
+
+        if (alreadyProbabilities) {
+          return values;
+        }
+
+        return softmax(values);
+      }
+
+      async function postJson(url, body) {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || `Request failed with ${response.status}`);
+        }
+        return response.json();
+      }
+
+      async function hashText(value) {
+        const encoded = new TextEncoder().encode(value);
+        return hashBuffer(encoded.buffer);
+      }
+
+      async function hashTensor(tensor) {
+        const canonical = Array.from(tensor, (value) => value.toFixed(4)).join(',');
+        return hashText(canonical);
+      }
+
+      async function hashBuffer(buffer) {
+        const digest = await crypto.subtle.digest('SHA-256', buffer);
+        return Array.from(new Uint8Array(digest))
+          .map((byte) => byte.toString(16).padStart(2, '0'))
+          .join('');
+      }
+
+      function resetVisualState() {
+        captchaToken = null;
+        submitBtn.disabled = true;
+        progressContainer.classList.add('active');
+        progressFill.style.width = '0%';
+        statusEl.className = 'captcha-status';
+        captchaBox.classList.remove('verified');
+        verifyBtn.classList.remove('success');
+        for (let step = 1; step <= 4; step++) {
+          setStep(step, '');
         }
       }
 
       function updateProgress(percent, message) {
-        progressFill.style.width = percent + '%';
+        progressFill.style.width = `${percent}%`;
         statusEl.textContent = message;
         statusEl.className = 'captcha-status';
       }
 
       function setStep(stepNum, state) {
-        const step = document.getElementById('step-' + stepNum);
-        step.className = 'progress-step ' + state;
+        const step = document.getElementById(`step-${stepNum}`);
+        step.className = `progress-step ${state}`.trim();
       }
 
       function sleep(ms) {
         return new Promise((resolve) => setTimeout(resolve, ms));
       }
 
-      // Form submission
       document
         .getElementById('demo-form')
         .addEventListener('submit', async function (e) {
           e.preventDefault();
 
           if (!captchaToken) {
-            showResult(
-              'error',
-              'Please complete the CAPTCHA verification first.'
-            );
+            showResult('error', 'Please complete the CAPTCHA verification first.');
             return;
           }
-
-          const formData = {
-            email: document.getElementById('email').value,
-            name: document.getElementById('name').value,
-            captchaToken: captchaToken,
-          };
-
-          console.log('Form submitted with CAPTCHA token:', formData);
 
           showResult(
             'success',
             `<strong>Form submitted successfully!</strong>
           <small>
             CAPTCHA Token: ${captchaToken.substring(0, 24)}...<br>
-            Your backend would validate this token via /api/v1/captcha/validate
+            See <a href="/dashboard" target="_blank" rel="noopener">dashboard</a> for the logged inference.
           </small>`
           );
         });
 
       function showResult(type, message) {
         const resultEl = document.getElementById('result');
-        resultEl.className = 'result ' + type;
+        resultEl.className = `result ${type}`;
         resultEl.innerHTML = message;
       }
     </script>

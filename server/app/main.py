@@ -6,12 +6,13 @@ FastAPI application entry point with middleware, routes, and lifecycle managemen
 
 import json
 import logging
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi.exceptions import RequestValidationError
 
 from app.config import get_settings
@@ -28,6 +29,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
+DEMO_FRONTEND_DIR = Path(__file__).resolve().parents[2] / "demo" / "frontend"
 
 
 @asynccontextmanager
@@ -172,6 +174,12 @@ async def root():
         "version": "0.1.0",
         "docs": "/docs" if settings.debug else None,
     }
+
+
+@app.get("/demo", include_in_schema=False)
+async def demo_frontend():
+    """Serve the interactive demo frontend."""
+    return FileResponse(DEMO_FRONTEND_DIR / "index.html")
 
 
 # API endpoint for inference data

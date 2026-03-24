@@ -360,12 +360,15 @@ export class ShardInferenceEngine {
     output: Float32Array,
     labels: string[]
   ): Prediction {
+    const probabilities = this.normalizeConfidences(output);
+    const useClassificationLabels = labels.length === probabilities.length;
+
     // Find top prediction
     let maxIdx = 0;
-    let maxVal = output[0];
-    for (let i = 1; i < output.length; i++) {
-      if (output[i] > maxVal) {
-        maxVal = output[i];
+    let maxVal = probabilities[0];
+    for (let i = 1; i < probabilities.length; i++) {
+      if (probabilities[i] > maxVal) {
+        maxVal = probabilities[i];
         maxIdx = i;
       }
     }
@@ -373,25 +376,72 @@ export class ShardInferenceEngine {
     // Get top-k predictions
     const topK: { label: string; confidence: number }[] = [];
     const entries: { val: number; idx: number }[] = [];
-    for (let i = 0; i < output.length; i++) {
-      entries.push({ val: output[i], idx: i });
+    for (let i = 0; i < probabilities.length; i++) {
+      entries.push({ val: probabilities[i], idx: i });
     }
     entries.sort((a, b) => b.val - a.val);
-    const topEntries = entries.slice(0, Math.min(5, output.length));
+    const topEntries = entries.slice(0, Math.min(5, probabilities.length));
 
     for (let i = 0; i < topEntries.length; i++) {
       const { val, idx } = topEntries[i];
       topK.push({
-        label: labels[idx] || `class_${idx}`,
+        label: useClassificationLabels ? labels[idx] : `feature_${idx}`,
         confidence: Math.round(val * 1000) / 1000,
       });
     }
 
     return {
-      label: labels[maxIdx] || `class_${maxIdx}`,
+      label: useClassificationLabels ? labels[maxIdx] : `feature_${maxIdx}`,
       confidence: Math.round(maxVal * 1000) / 1000,
       topK,
     };
+  }
+
+  private normalizeConfidences(output: Float32Array): Float32Array {
+    if (output.length === 0) {
+      return output;
+    }
+
+    let minVal = output[0];
+    let maxVal = output[0];
+    let sum = 0;
+
+    for (let i = 0; i < output.length; i++) {
+      const value = output[i];
+      if (value < minVal) minVal = value;
+      if (value > maxVal) maxVal = value;
+      sum += value;
+    }
+
+    const alreadyProbabilities =
+      minVal >= 0 &&
+      maxVal <= 1 &&
+      Math.abs(sum - 1) < 1e-3;
+
+    if (alreadyProbabilities) {
+      return output;
+    }
+
+    let maxLogit = output[0];
+    for (let i = 1; i < output.length; i++) {
+      if (output[i] > maxLogit) {
+        maxLogit = output[i];
+      }
+    }
+
+    const probabilities = new Float32Array(output.length);
+    let expSum = 0;
+
+    for (let i = 0; i < output.length; i++) {
+      probabilities[i] = Math.exp(output[i] - maxLogit);
+      expSum += probabilities[i];
+    }
+
+    for (let i = 0; i < probabilities.length; i++) {
+      probabilities[i] /= expSum;
+    }
+
+    return probabilities;
   }
 
   /**
@@ -437,12 +487,8 @@ export class ShardInferenceEngine {
    * Hash a tensor (Float32Array)
    */
   private async hashTensor(tensor: Float32Array): Promise<string> {
-    // Convert to array buffer for hashing
-    const arrayBuffer = tensor.buffer.slice(
-      tensor.byteOffset,
-      tensor.byteOffset + tensor.byteLength
-    );
-    return await hashData(arrayBuffer as ArrayBuffer);
+    const canonical = Array.from(tensor, (value) => value.toFixed(4)).join(',');
+    return await hashData(canonical);
   }
 
   /**

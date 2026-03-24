@@ -130,12 +130,13 @@ class GroundTruthCache:
     def _hash_input(self, input_data: List[float]) -> str:
         """Generate hash for input data."""
         input_bytes = json.dumps(input_data, sort_keys=True).encode()
-        return hashlib.sha256(input_bytes).hexdigest()[:16]
+        return hashlib.sha256(input_bytes).hexdigest()
     
     def _hash_output(self, output_data: np.ndarray) -> str:
         """Generate hash for output tensor."""
-        output_bytes = output_data.tobytes()
-        return hashlib.sha256(output_bytes).hexdigest()[:16]
+        flat_output = output_data.flatten()
+        canonical = ",".join(f"{float(value):.4f}" for value in flat_output)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     
     async def add_ground_truth(
         self,

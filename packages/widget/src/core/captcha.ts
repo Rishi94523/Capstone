@@ -139,6 +139,11 @@ export class PoUWCaptcha {
 
         this.invokeCallback('onSuccess', submitResponse.captchaToken);
         return result;
+      } else if (submitResponse.success === false) {
+        throw this.createError(
+          'VALIDATION_ERROR',
+          'CAPTCHA proof validation failed'
+        );
       } else {
         throw this.createError('VALIDATION_ERROR', 'Invalid server response');
       }
