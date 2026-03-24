@@ -516,6 +516,101 @@
         font-size: 11px;
       }
 
+      .verification-panel {
+        display: none;
+        margin-top: 20px;
+        padding: 20px;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background:
+          linear-gradient(180deg, rgba(99, 102, 241, 0.08), transparent),
+          var(--bg-input);
+      }
+
+      .verification-panel.active {
+        display: block;
+        animation: slideIn 0.25s ease;
+      }
+
+      .verification-title {
+        color: var(--text-primary);
+        font-size: 16px;
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+
+      .verification-copy {
+        color: var(--text-secondary);
+        font-size: 14px;
+        line-height: 1.5;
+        margin-bottom: 14px;
+      }
+
+      .verification-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(6, 182, 212, 0.12);
+        color: var(--accent);
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 14px;
+      }
+
+      .verification-field {
+        display: none;
+        margin-bottom: 14px;
+      }
+
+      .verification-field.active {
+        display: block;
+      }
+
+      .verification-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .verification-btn {
+        padding: 12px 16px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: var(--bg-card);
+        color: var(--text-primary);
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.2s ease, border-color 0.2s ease,
+          box-shadow 0.2s ease;
+      }
+
+      .verification-btn:hover {
+        transform: translateY(-1px);
+        border-color: var(--primary);
+      }
+
+      .verification-btn.primary {
+        background: linear-gradient(
+          135deg,
+          var(--primary) 0%,
+          var(--primary-dark) 100%
+        );
+        border-color: transparent;
+      }
+
+      .verification-btn.secondary {
+        background: rgba(245, 158, 11, 0.1);
+        color: #fbbf24;
+      }
+
+      .verification-btn.ghost {
+        background: transparent;
+        color: var(--text-secondary);
+      }
+
       /* Info Section */
       .info-section {
         margin-top: 32px;
@@ -800,6 +895,34 @@
 
       <div class="result" id="result"></div>
 
+      <div class="verification-panel" id="verification-panel">
+        <div class="verification-title">Human Verification</div>
+        <p class="verification-copy" id="verification-prompt"></p>
+        <div class="verification-chip" id="verification-label"></div>
+        <div class="verification-field" id="verification-field">
+          <label for="verification-correction">Correct label</label>
+          <input
+            id="verification-correction"
+            type="text"
+            placeholder="Enter the corrected label"
+          />
+        </div>
+        <div class="verification-actions">
+          <button type="button" class="verification-btn primary" id="verification-confirm">
+            Approve Label
+          </button>
+          <button type="button" class="verification-btn secondary" id="verification-correct">
+            Provide Correction
+          </button>
+          <button type="button" class="verification-btn primary" id="verification-submit-correction" style="display: none">
+            Submit Correction
+          </button>
+          <button type="button" class="verification-btn ghost" id="verification-cancel">
+            Cancel
+          </button>
+        </div>
+      </div>
+
       <div class="info-section">
         <div class="info-title">
           <span>&#128161;</span>
@@ -857,6 +980,15 @@
       const progressFill = document.getElementById('progress-fill');
       const captchaBox = document.getElementById('captcha-box');
       const neuralAnim = document.getElementById('neural-anim');
+      const verificationPanel = document.getElementById('verification-panel');
+      const verificationPrompt = document.getElementById('verification-prompt');
+      const verificationLabel = document.getElementById('verification-label');
+      const verificationField = document.getElementById('verification-field');
+      const verificationCorrectionInput = document.getElementById('verification-correction');
+      const verificationConfirmBtn = document.getElementById('verification-confirm');
+      const verificationCorrectBtn = document.getElementById('verification-correct');
+      const verificationSubmitCorrectionBtn = document.getElementById('verification-submit-correction');
+      const verificationCancelBtn = document.getElementById('verification-cancel');
 
       verifyBtn.addEventListener('click', runCaptcha);
 
@@ -974,14 +1106,7 @@
       }
 
       async function handleVerification(verification) {
-        const response = window.confirm(
-          `${verification.prompt}\n\nPress OK for "${verification.predictedLabel}", or Cancel to choose a different label.`
-        )
-          ? { response: 'confirm' }
-          : {
-              response: 'correct',
-              correctedLabel: promptForCorrection(verification),
-            };
+        const response = await collectVerificationResponse(verification);
 
         const verifyResult = await postJson(`${POUW_CONFIG.apiUrl}/captcha/verify`, {
           sessionId: sessionData.sessionId,
@@ -994,16 +1119,50 @@
         return verifyResult.captchaToken;
       }
 
-      function promptForCorrection(verification) {
-        const options = verification.options
-          .filter((option) => option.id !== 'confirm')
-          .map((option) => option.label);
-        const fallback = verification.predictedLabel;
-        const correction = window.prompt(
-          `Enter the correct label.\nSuggested labels: ${options.join(', ') || '0-9'}`,
-          fallback
-        );
-        return correction && correction.trim() ? correction.trim() : fallback;
+      function collectVerificationResponse(verification) {
+        verificationPanel.classList.add('active');
+        verificationPrompt.textContent = verification.prompt;
+        verificationLabel.textContent = `Suggested label: ${verification.predictedLabel}`;
+        verificationField.classList.remove('active');
+        verificationSubmitCorrectionBtn.style.display = 'none';
+        verificationCorrectionInput.value = verification.predictedLabel || '';
+
+        return new Promise((resolve, reject) => {
+          const cleanup = () => {
+            verificationPanel.classList.remove('active');
+            verificationConfirmBtn.onclick = null;
+            verificationCorrectBtn.onclick = null;
+            verificationSubmitCorrectionBtn.onclick = null;
+            verificationCancelBtn.onclick = null;
+          };
+
+          verificationConfirmBtn.onclick = () => {
+            cleanup();
+            resolve({ response: 'confirm' });
+          };
+
+          verificationCorrectBtn.onclick = () => {
+            verificationField.classList.add('active');
+            verificationSubmitCorrectionBtn.style.display = 'inline-flex';
+            verificationCorrectionInput.focus();
+            verificationCorrectionInput.select();
+          };
+
+          verificationSubmitCorrectionBtn.onclick = () => {
+            const correctedLabel =
+              verificationCorrectionInput.value.trim() || verification.predictedLabel;
+            cleanup();
+            resolve({
+              response: 'correct',
+              correctedLabel,
+            });
+          };
+
+          verificationCancelBtn.onclick = () => {
+            cleanup();
+            reject(new Error('Verification was cancelled'));
+          };
+        });
       }
 
       async function executeShardTask(task, onProgress) {
@@ -1193,6 +1352,9 @@
         statusEl.className = 'captcha-status';
         captchaBox.classList.remove('verified');
         verifyBtn.classList.remove('success');
+        verificationPanel.classList.remove('active');
+        verificationField.classList.remove('active');
+        verificationSubmitCorrectionBtn.style.display = 'none';
         for (let step = 1; step <= 4; step++) {
           setStep(step, '');
         }

@@ -5,10 +5,12 @@ Verification API schemas.
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from app.schemas.captcha import APIModel
 
 
-class VerificationSubmitRequest(BaseModel):
+class VerificationSubmitRequest(APIModel):
     """Request to submit human verification."""
 
     session_id: str = Field(..., description="Session ID")
@@ -24,7 +26,7 @@ class VerificationSubmitRequest(BaseModel):
     )
 
 
-class VerificationSubmitResponse(BaseModel):
+class VerificationSubmitResponse(APIModel):
     """Response from verification submission."""
 
     success: bool = Field(..., description="Verification success")
@@ -32,7 +34,7 @@ class VerificationSubmitResponse(BaseModel):
     expires_at: datetime = Field(..., description="Token expiry time")
 
 
-class VerificationData(BaseModel):
+class VerificationData(APIModel):
     """Data for creating a verification request."""
 
     verification_id: str
