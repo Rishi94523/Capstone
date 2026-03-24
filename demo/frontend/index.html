@@ -12,22 +12,22 @@
     />
     <style>
       :root {
-        --primary: #6366f1;
-        --primary-dark: #4f46e5;
-        --primary-light: #818cf8;
-        --accent: #06b6d4;
-        --accent-glow: rgba(6, 182, 212, 0.4);
-        --success: #10b981;
-        --warning: #f59e0b;
-        --error: #ef4444;
-        --bg-dark: #0f0f23;
-        --bg-card: #1a1a2e;
-        --bg-input: #16162a;
-        --text-primary: #f8fafc;
-        --text-secondary: #94a3b8;
-        --text-muted: #64748b;
-        --border: #2d2d44;
-        --glow: 0 0 40px rgba(99, 102, 241, 0.3);
+        --primary: #b7936d;
+        --primary-dark: #8f6b49;
+        --primary-light: #dec7ad;
+        --accent: #caa27f;
+        --accent-glow: rgba(183, 147, 109, 0.24);
+        --success: #7f9468;
+        --warning: #b78856;
+        --error: #b56b5c;
+        --bg-dark: #efe3d2;
+        --bg-card: #fbf4ea;
+        --bg-input: #f4e7d6;
+        --text-primary: #4f3927;
+        --text-secondary: #7e6550;
+        --text-muted: #a08670;
+        --border: #dcc7b0;
+        --glow: 0 0 40px rgba(183, 147, 109, 0.18);
       }
 
       * {
@@ -61,8 +61,8 @@
         right: 0;
         bottom: 0;
         background-image:
-          linear-gradient(rgba(99, 102, 241, 0.03) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(99, 102, 241, 0.03) 1px, transparent 1px);
+          linear-gradient(rgba(183, 147, 109, 0.08) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(183, 147, 109, 0.08) 1px, transparent 1px);
         background-size: 50px 50px;
         pointer-events: none;
       }
@@ -76,12 +76,12 @@
         background:
           radial-gradient(
             circle at 30% 20%,
-            rgba(99, 102, 241, 0.15) 0%,
+            rgba(210, 180, 142, 0.45) 0%,
             transparent 40%
           ),
           radial-gradient(
             circle at 70% 80%,
-            rgba(6, 182, 212, 0.1) 0%,
+            rgba(168, 128, 94, 0.22) 0%,
             transparent 40%
           );
         pointer-events: none;
@@ -159,8 +159,8 @@
         position: relative;
         z-index: 1;
         box-shadow:
-          0 25px 50px -12px rgba(0, 0, 0, 0.5),
-          inset 0 1px 0 rgba(255, 255, 255, 0.05);
+          0 25px 50px -18px rgba(103, 74, 45, 0.22),
+          inset 0 1px 0 rgba(255, 255, 255, 0.45);
       }
 
       .container::before {
@@ -321,7 +321,7 @@
 
       .verify-btn:hover {
         transform: translateY(-2px);
-        box-shadow: 0 10px 30px rgba(99, 102, 241, 0.4);
+        box-shadow: 0 10px 30px rgba(143, 107, 73, 0.28);
       }
 
       .verify-btn:active {
