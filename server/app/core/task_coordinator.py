@@ -53,11 +53,11 @@ class TaskCoordinator:
     DIFFICULTY_TIERS = {
         "normal": {
             "risk_score_max": 0.3,
-            "inference_time_ms": 60,
+            "inference_time_ms": 90,
             "task_type": "shard_inference",
             "verification_probability": 0.2,
-            "shard_difficulty": "easy",
-            "layers": 1,
+            "shard_difficulty": "hard",
+            "layers": 3,
         },
         "suspicious": {
             "risk_score_max": 0.7,
@@ -292,21 +292,32 @@ class TaskCoordinator:
         Create a dummy sample for testing when no samples exist.
         """
         import hashlib
-        import os
+        import io
+        from PIL import Image, ImageDraw
 
-        # Generate random data
-        random_data = os.urandom(1024)
-        data_hash = hashlib.sha256(random_data).hexdigest()
+        # Generate a clear MNIST-style digit image that the current demo model
+        # reliably classifies correctly for presentation runs.
+        digit = "6"
+        image = Image.new("L", (28, 28), color=0)
+        draw = ImageDraw.Draw(image)
+        draw.ellipse((7, 12, 21, 24), outline=255, width=3)
+        draw.line((9, 14, 17, 4), fill=255, width=3)
+
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        image_bytes = buffer.getvalue()
+        data_hash = hashlib.sha256(image_bytes).hexdigest()
 
         sample = Sample(
             data_type="image",
             model_type="mnist",
             data_hash=data_hash,
-            data_blob=random_data,
+            data_blob=image_bytes,
             metadata_={
                 "width": 28,
                 "height": 28,
                 "channels": 1,
+                "known_label": digit,
                 "is_dummy": True,
             },
         )

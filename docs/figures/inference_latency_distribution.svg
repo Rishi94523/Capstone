@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+  <title id="title">Inference Time Distribution</title>
+  <desc id="desc">Bar chart showing prototype client-side inference time distribution across five latency buckets.</desc>
+  <defs>
+    <style>
+      .bg { fill: #fffaf3; }
+      .panel { fill: #f6eedf; stroke: #d8c3a6; stroke-width: 2; }
+      .axis { stroke: #5c4a3d; stroke-width: 2.5; }
+      .grid { stroke: #dccdb9; stroke-width: 1; }
+      .bar { fill: #c78652; }
+      .bar-accent { fill: #9b5f39; }
+      .label { fill: #4a3a2f; font-family: Arial, Helvetica, sans-serif; font-size: 22px; }
+      .tick { fill: #5a4b40; font-family: Arial, Helvetica, sans-serif; font-size: 18px; }
+      .title { fill: #35281f; font-family: Arial, Helvetica, sans-serif; font-size: 34px; font-weight: 700; }
+      .subtitle { fill: #6f5d4f; font-family: Arial, Helvetica, sans-serif; font-size: 20px; }
+      .footnote { fill: #6f5d4f; font-family: Arial, Helvetica, sans-serif; font-size: 18px; }
+      .value { fill: #ffffff; font-family: Arial, Helvetica, sans-serif; font-size: 18px; font-weight: 700; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="720" />
+  <rect class="panel" x="40" y="40" width="1120" height="640" rx="24" />
+
+  <text class="title" x="90" y="105">Inference Time Distribution</text>
+  <text class="subtitle" x="90" y="140">Prototype client-side ML execution latency from 38 recorded runs</text>
+
+  <!-- Plot area -->
+  <line class="axis" x1="140" y1="600" x2="1060" y2="600" />
+  <line class="axis" x1="140" y1="190" x2="140" y2="600" />
+
+  <!-- Grid lines and y-axis ticks -->
+  <line class="grid" x1="140" y1="600" x2="1060" y2="600" />
+  <line class="grid" x1="140" y1="518" x2="1060" y2="518" />
+  <line class="grid" x1="140" y1="436" x2="1060" y2="436" />
+  <line class="grid" x1="140" y1="354" x2="1060" y2="354" />
+  <line class="grid" x1="140" y1="272" x2="1060" y2="272" />
+  <line class="grid" x1="140" y1="190" x2="1060" y2="190" />
+
+  <text class="tick" x="118" y="606" text-anchor="end">0</text>
+  <text class="tick" x="118" y="524" text-anchor="end">5</text>
+  <text class="tick" x="118" y="442" text-anchor="end">10</text>
+  <text class="tick" x="118" y="360" text-anchor="end">15</text>
+  <text class="tick" x="118" y="278" text-anchor="end">20</text>
+  <text class="tick" x="118" y="196" text-anchor="end">25</text>
+
+  <text class="label" transform="translate(55,430) rotate(-90)" text-anchor="middle">Number of Runs</text>
+  <text class="label" x="600" y="650" text-anchor="middle">Inference Time Bucket (ms)</text>
+
+  <!-- Bars -->
+  <rect class="bar" x="210" y="403.2" width="110" height="196.8" rx="10" />
+  <rect class="bar-accent" x="370" y="206.4" width="110" height="393.6" rx="10" />
+  <rect class="bar" x="530" y="583.6" width="110" height="16.4" rx="10" />
+  <rect class="bar" x="690" y="600" width="110" height="0" rx="10" />
+  <rect class="bar" x="850" y="583.6" width="110" height="16.4" rx="10" />
+
+  <!-- Values -->
+  <text class="value" x="265" y="430" text-anchor="middle">12</text>
+  <text class="value" x="425" y="235" text-anchor="middle">24</text>
+  <text class="tick" x="585" y="575" text-anchor="middle">1</text>
+  <text class="tick" x="745" y="575" text-anchor="middle">0</text>
+  <text class="tick" x="905" y="575" text-anchor="middle">1</text>
+
+  <!-- X labels -->
+  <text class="tick" x="265" y="630" text-anchor="middle">0-79</text>
+  <text class="tick" x="425" y="630" text-anchor="middle">80-89</text>
+  <text class="tick" x="585" y="630" text-anchor="middle">90-99</text>
+  <text class="tick" x="745" y="630" text-anchor="middle">100-109</text>
+  <text class="tick" x="905" y="630" text-anchor="middle">110+</text>
+
+  <!-- Notes -->
+  <text class="footnote" x="90" y="675">Most prototype runs completed in the 80-89 ms range; one outlier exceeded 110 ms.</text>
+</svg>

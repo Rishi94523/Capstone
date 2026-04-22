@@ -8,11 +8,13 @@ can reproduce the same layer payloads without depending on TensorFlow at runtime
 from __future__ import annotations
 
 import base64
+import io
 import random
 import struct
 from typing import List, Sequence
 
 import numpy as np
+from PIL import Image
 
 MODEL_NAME = "mnist-tiny"
 MODEL_VERSION = "1.0.0"
@@ -91,6 +93,15 @@ def sample_to_input_vector(sample_blob: bytes | None, sample_url: str | None = N
     If the sample already stores an input vector in raw bytes, we use that directly.
     Otherwise, we deterministically derive one from the available bytes/URL.
     """
+    if sample_blob:
+        try:
+            image = Image.open(io.BytesIO(sample_blob)).convert("L").resize((28, 28))
+            pixel_data = np.asarray(image, dtype=np.float32) / 255.0
+            return pixel_data.flatten().tolist()
+        except Exception:
+            # Fall back to the raw-byte path below for non-image blobs.
+            pass
+
     source = sample_blob or (sample_url.encode("utf-8") if sample_url else b"")
     if not source:
         source = bytes([0] * 784)
