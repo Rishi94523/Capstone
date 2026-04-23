@@ -204,7 +204,6 @@ async def dashboard():
     accuracy = (valid_count / total * 100) if total > 0 else 0
     avg_inference_ms = sum(i.get("inference_ms", 0) for i in inference_log) / total if total > 0 else 0
     avg_confidence = sum(i.get("confidence", 0) for i in inference_log) / total if total > 0 else 0
-    
     # Build inference rows HTML
     inference_rows = ""
     for i, inf in enumerate(reversed(inference_log[-50:])):  # Show last 50
@@ -246,25 +245,86 @@ async def dashboard():
         <title>ML Inference Dashboard - PoUW CAPTCHA</title>
         <meta charset="UTF-8">
         <meta http-equiv="refresh" content="5">
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
         <style>
+            :root {{
+                --bg: #f3ebdf;
+                --panel: rgba(255, 250, 244, 0.9);
+                --panel-strong: #f1e5d6;
+                --line: rgba(113, 82, 59, 0.14);
+                --ink: #3e3023;
+                --ink-soft: #6d5947;
+                --ink-faint: #9b846d;
+                --accent: #94684a;
+                --accent-dark: #704c33;
+                --accent-soft: #e4cfb8;
+                --success: #50795a;
+                --danger: #a55e57;
+                --shadow: 0 24px 70px rgba(96, 68, 42, 0.12);
+            }}
             * {{ box-sizing: border-box; margin: 0; padding: 0; }}
             body {{
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                background: #0f172a;
-                color: #e2e8f0;
+                font-family: 'Sora', sans-serif;
+                color: var(--ink);
                 min-height: 100vh;
-                padding: 20px;
+                padding: 22px;
+                background:
+                    radial-gradient(circle at 14% 16%, rgba(219, 188, 152, 0.32), transparent 24%),
+                    radial-gradient(circle at 86% 18%, rgba(177, 136, 96, 0.18), transparent 22%),
+                    linear-gradient(180deg, #f8f2e8 0%, #f1e7d9 100%);
             }}
-            .container {{ max-width: 1400px; margin: 0 auto; }}
+            body::before {{
+                content: '';
+                position: fixed;
+                inset: 0;
+                background-image:
+                    linear-gradient(rgba(113, 82, 59, 0.05) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(113, 82, 59, 0.05) 1px, transparent 1px);
+                background-size: 72px 72px;
+                pointer-events: none;
+                mask-image: radial-gradient(circle at center, black 56%, transparent 92%);
+            }}
+            .container {{
+                position: relative;
+                z-index: 1;
+                max-width: 1400px;
+                margin: 0 auto;
+            }}
             h1 {{
-                font-size: 28px;
+                font-family: 'Instrument Serif', serif;
+                font-size: clamp(2.4rem, 3.6vw, 3.4rem);
                 margin-bottom: 8px;
-                background: linear-gradient(135deg, #6366f1, #06b6d4);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
+                color: var(--accent-dark);
+                letter-spacing: -0.05em;
+                line-height: 0.95;
             }}
-            .subtitle {{ color: #64748b; margin-bottom: 24px; }}
-            
+            .subtitle {{ color: var(--ink-soft); margin-bottom: 24px; }}
+            .header-row {{
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                gap: 16px;
+                margin-bottom: 24px;
+            }}
+            .api-note {{
+                background:
+                    linear-gradient(180deg, rgba(255, 255, 255, 0.55), transparent 22%),
+                    var(--panel);
+                padding: 12px 16px;
+                border-radius: 14px;
+                font-size: 12px;
+                color: var(--ink-soft);
+                border: 1px solid var(--line);
+                box-shadow: var(--shadow);
+            }}
+            .api-note code {{
+                background: var(--panel-strong);
+                padding: 2px 6px;
+                border-radius: 6px;
+                color: var(--accent-dark);
+            }}
             .stats-grid {{
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -272,53 +332,88 @@ async def dashboard():
                 margin-bottom: 24px;
             }}
             .stat-card {{
-                background: #1e293b;
-                border-radius: 12px;
+                background:
+                    linear-gradient(180deg, rgba(255, 255, 255, 0.55), transparent 22%),
+                    var(--panel);
+                border-radius: 18px;
                 padding: 20px;
-                border: 1px solid #334155;
+                border: 1px solid var(--line);
+                box-shadow: var(--shadow);
             }}
-            .stat-label {{ color: #64748b; font-size: 13px; margin-bottom: 4px; }}
-            .stat-value {{ font-size: 32px; font-weight: 700; }}
-            .stat-value.green {{ color: #10b981; }}
-            .stat-value.blue {{ color: #3b82f6; }}
-            .stat-value.purple {{ color: #8b5cf6; }}
-            .stat-value.orange {{ color: #f59e0b; }}
-            
+            .stat-label {{
+                color: var(--ink-faint);
+                font-size: 13px;
+                margin-bottom: 4px;
+            }}
+            .stat-value {{
+                font-size: 32px;
+                font-weight: 700;
+                color: var(--ink);
+            }}
+            .stat-value.green {{ color: var(--success); }}
+            .stat-value.blue {{ color: var(--accent-dark); }}
+            .stat-value.purple {{ color: #7b6c93; }}
+            .stat-value.orange {{ color: #a97a47; }}
             .table-container {{
-                background: #1e293b;
-                border-radius: 12px;
-                border: 1px solid #334155;
+                background:
+                    linear-gradient(180deg, rgba(255, 255, 255, 0.55), transparent 22%),
+                    var(--panel);
+                border-radius: 18px;
+                border: 1px solid var(--line);
                 overflow: hidden;
+                box-shadow: var(--shadow);
             }}
             .table-header {{
                 padding: 16px 20px;
-                border-bottom: 1px solid #334155;
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
+                gap: 16px;
+                border-bottom: 1px solid var(--line);
             }}
             .table-header h2 {{ font-size: 18px; }}
-            .refresh-note {{ color: #64748b; font-size: 12px; }}
-            
-            table {{ width: 100%; border-collapse: collapse; }}
-            th, td {{ padding: 12px 16px; text-align: left; border-bottom: 1px solid #334155; }}
-            th {{ background: #0f172a; color: #94a3b8; font-weight: 500; font-size: 12px; text-transform: uppercase; }}
-            tr:hover {{ background: #334155; }}
-            
-            .sample-img {{ width: 50px; height: 50px; border-radius: 6px; object-fit: cover; }}
-            
+            .refresh-note {{
+                color: var(--ink-faint);
+                font-size: 12px;
+            }}
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+            }}
+            th, td {{
+                padding: 12px 16px;
+                text-align: left;
+                border-bottom: 1px solid rgba(113, 82, 59, 0.08);
+                vertical-align: middle;
+            }}
+            th {{
+                background: rgba(241, 229, 214, 0.82);
+                color: var(--ink-faint);
+                font-weight: 500;
+                font-size: 12px;
+                text-transform: uppercase;
+            }}
+            tbody tr:hover {{
+                background: rgba(255, 253, 249, 0.72);
+            }}
+            .sample-img {{
+                width: 50px;
+                height: 50px;
+                border-radius: 10px;
+                object-fit: cover;
+            }}
             .confidence-bar {{
                 width: 100px;
                 height: 20px;
-                background: #334155;
-                border-radius: 4px;
                 position: relative;
                 overflow: hidden;
+                border-radius: 6px;
+                background: rgba(113, 82, 59, 0.1);
             }}
             .confidence-fill {{
                 height: 100%;
-                background: linear-gradient(90deg, #10b981, #34d399);
-                border-radius: 4px;
+                border-radius: 6px;
+                background: linear-gradient(90deg, var(--accent), #c89c72);
             }}
             .confidence-bar span {{
                 position: absolute;
@@ -326,49 +421,42 @@ async def dashboard():
                 top: 50%;
                 transform: translate(-50%, -50%);
                 font-size: 11px;
-                font-weight: 600;
+                font-weight: 700;
+                color: var(--ink);
             }}
-            
             .badge {{
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
                 padding: 4px 8px;
-                border-radius: 4px;
+                border-radius: 6px;
                 font-size: 11px;
                 font-weight: 600;
             }}
-            .badge.valid {{ background: rgba(16, 185, 129, 0.2); color: #10b981; }}
-            .badge.invalid {{ background: rgba(239, 68, 68, 0.2); color: #ef4444; }}
-            
+            .badge.valid {{ background: rgba(80, 121, 90, 0.14); color: var(--success); }}
+            .badge.invalid {{ background: rgba(165, 94, 87, 0.14); color: var(--danger); }}
             .topk-cell {{ min-width: 150px; }}
             .topk-item {{
                 display: flex;
                 justify-content: space-between;
                 font-size: 11px;
-                color: #94a3b8;
+                color: var(--ink-soft);
                 padding: 2px 0;
             }}
-            
-            .timestamp {{ font-size: 11px; color: #64748b; font-family: monospace; }}
-            .empty {{ text-align: center; padding: 40px; color: #64748b; }}
-            
-            .header-row {{
-                display: flex;
-                justify-content: space-between;
-                align-items: flex-start;
-                margin-bottom: 24px;
+            .timestamp {{
+                font-size: 11px;
+                color: var(--ink-faint);
+                font-family: monospace;
             }}
-            .api-note {{
-                background: #1e293b;
-                padding: 12px 16px;
-                border-radius: 8px;
-                font-size: 12px;
-                color: #94a3b8;
-                border: 1px solid #334155;
+            .empty {{
+                text-align: center;
+                padding: 40px;
+                color: var(--ink-faint);
             }}
-            .api-note code {{
-                background: #0f172a;
-                padding: 2px 6px;
-                border-radius: 4px;
-                color: #06b6d4;
+            @media (max-width: 820px) {{
+                .header-row {{
+                    flex-direction: column;
+                }}
             }}
         </style>
     </head>
@@ -390,15 +478,15 @@ async def dashboard():
                     <div class="stat-value blue">{total}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Valid Rate</div>
+                    <div class="stat-label">Verified Rate</div>
                     <div class="stat-value green">{accuracy:.1f}%</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Avg Inference Time</div>
+                    <div class="stat-label">Average Latency</div>
                     <div class="stat-value purple">{avg_inference_ms:.0f}ms</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Avg Confidence</div>
+                    <div class="stat-label">Average Confidence</div>
                     <div class="stat-value orange">{avg_confidence:.1%}</div>
                 </div>
             </div>

@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Sora:wght@300;400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <style>
@@ -781,35 +781,630 @@
           font-size: 24px;
         }
       }
+
+      /* 2026 presentation redesign */
+      :root {
+        --primary: #936749;
+        --primary-dark: #6f4d34;
+        --primary-light: #e4cfb8;
+        --accent: #b78d63;
+        --success: #50785a;
+        --warning: #a77a48;
+        --error: #a35c55;
+        --bg-dark: #f3ebdf;
+        --bg-card: rgba(255, 250, 244, 0.88);
+        --bg-input: #f2e7d8;
+        --text-primary: #3d2f22;
+        --text-secondary: #6c5a49;
+        --text-muted: #9a8571;
+        --border: rgba(110, 82, 58, 0.14);
+        --glow: 0 24px 70px rgba(102, 74, 47, 0.12);
+      }
+
+      body {
+        font-family: 'Sora', sans-serif;
+        display: block;
+        padding: 32px 20px 24px;
+        background:
+          radial-gradient(circle at 14% 16%, rgba(219, 188, 152, 0.36), transparent 25%),
+          radial-gradient(circle at 86% 18%, rgba(177, 136, 96, 0.18), transparent 22%),
+          linear-gradient(180deg, #f8f2e8 0%, #f1e7d9 100%);
+      }
+
+      .bg-grid {
+        background-image:
+          linear-gradient(rgba(120, 93, 67, 0.05) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(120, 93, 67, 0.05) 1px, transparent 1px);
+        background-size: 72px 72px;
+        mask-image: radial-gradient(circle at center, black 54%, transparent 92%);
+      }
+
+      .page-shell {
+        max-width: 1320px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: minmax(0, 1.08fr) minmax(360px, 470px);
+        gap: 28px;
+        align-items: start;
+        position: relative;
+        z-index: 1;
+      }
+
+      .header,
+      .container {
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.58), transparent 22%),
+          var(--bg-card);
+        border: 1px solid var(--border);
+        box-shadow: var(--glow);
+      }
+
+      .header {
+        margin-bottom: 0;
+        text-align: left;
+        padding: clamp(26px, 4vw, 42px);
+        border-radius: 32px;
+        overflow: hidden;
+      }
+
+      .header::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at top right, rgba(147, 103, 73, 0.12), transparent 26%),
+          linear-gradient(135deg, rgba(147, 103, 73, 0.07), transparent 30%);
+        pointer-events: none;
+      }
+
+      .header {
+        text-align: left;
+        margin-bottom: 0;
+        padding: clamp(26px, 4vw, 42px);
+        border-radius: 32px;
+        overflow: hidden;
+      }
+
+      .header::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at top right, rgba(147, 103, 73, 0.12), transparent 26%),
+          linear-gradient(135deg, rgba(147, 103, 73, 0.07), transparent 30%);
+        pointer-events: none;
+      }
+
+      .logo {
+        margin-bottom: 18px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .logo-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 18px;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+        box-shadow: 0 18px 32px rgba(111, 77, 52, 0.18);
+      }
+
+      .logo-text {
+        color: var(--text-primary);
+        font-size: clamp(28px, 2vw, 34px);
+        font-weight: 600;
+        letter-spacing: -0.04em;
+        background: none;
+        -webkit-text-fill-color: initial;
+      }
+
+      .hero-kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(147, 103, 73, 0.08);
+        color: var(--primary-dark);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        margin-bottom: 18px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .hero-kicker::before {
+        content: '';
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--success);
+        box-shadow: 0 0 0 6px rgba(80, 120, 90, 0.14);
+      }
+
+      .hero-title {
+        position: relative;
+        z-index: 1;
+        font-family: 'Instrument Serif', serif;
+        font-size: clamp(3rem, 5vw, 5.1rem);
+        line-height: 0.95;
+        letter-spacing: -0.05em;
+        margin-bottom: 16px;
+        max-width: 10.5ch;
+        color: var(--text-primary);
+      }
+
+      .tagline {
+        position: relative;
+        z-index: 1;
+        font-size: clamp(1rem, 1.4vw, 1.15rem);
+        line-height: 1.72;
+        max-width: 60ch;
+        color: var(--text-secondary);
+      }
+
+      .hero-grid {
+        position: relative;
+        z-index: 1;
+        margin-top: 24px;
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 16px;
+      }
+
+      .hero-card,
+      .hero-metric {
+        border-radius: 24px;
+        border: 1px solid rgba(110, 82, 58, 0.1);
+        background: rgba(255, 252, 248, 0.84);
+        box-shadow: 0 12px 30px rgba(102, 74, 47, 0.08);
+      }
+
+      .hero-card {
+        padding: 22px;
+      }
+
+      .hero-card-label,
+      .hero-metric-label,
+      .panel-kicker,
+      label {
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--text-muted);
+      }
+
+      .hero-card-title {
+        margin: 12px 0 10px;
+        font-size: clamp(1.45rem, 1.9vw, 2rem);
+        letter-spacing: -0.04em;
+        line-height: 1.12;
+        color: var(--text-primary);
+      }
+
+      .hero-card-copy,
+      .hero-metric-copy,
+      .panel-copy {
+        color: var(--text-secondary);
+        line-height: 1.65;
+      }
+
+      .hero-card-footer {
+        margin-top: 18px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .signal-chip,
+      .detail-pill,
+      .footer-links a {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(147, 103, 73, 0.08);
+        color: var(--primary-dark);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .hero-metrics {
+        display: grid;
+        gap: 16px;
+      }
+
+      .hero-metric {
+        padding: 18px;
+      }
+
+      .hero-metric-value {
+        margin: 10px 0 6px;
+        font-size: clamp(2.1rem, 3vw, 2.8rem);
+        line-height: 1;
+        letter-spacing: -0.05em;
+        color: var(--text-primary);
+      }
+
+      .hero-metric-value span {
+        font-size: 0.44em;
+        color: var(--text-muted);
+      }
+
+      .hero-detail-row {
+        position: relative;
+        z-index: 1;
+        margin-top: 18px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .hero-detail {
+        padding: 16px 18px;
+        border-radius: 22px;
+        border: 1px solid rgba(110, 82, 58, 0.08);
+        background: rgba(255, 252, 247, 0.72);
+      }
+
+      .hero-detail p {
+        margin-top: 10px;
+        color: var(--text-secondary);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .container {
+        border-radius: 32px;
+        padding: 28px;
+      }
+
+      .container::before {
+        inset: 14px;
+        border-radius: 24px;
+        border: 1px dashed rgba(110, 82, 58, 0.14);
+      }
+
+      .panel-head {
+        margin-bottom: 22px;
+        padding-bottom: 18px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .panel-title {
+        font-size: clamp(1.7rem, 2vw, 2.15rem);
+        line-height: 1.08;
+        letter-spacing: -0.05em;
+        margin: 10px 0 10px;
+        color: var(--text-primary);
+      }
+
+      .detail-strip {
+        margin-top: 18px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .detail-pill {
+        justify-content: center;
+        text-align: center;
+        flex-direction: column;
+        gap: 4px;
+        padding: 12px 10px;
+        background: var(--bg-input);
+        color: var(--text-primary);
+      }
+
+      .detail-pill strong {
+        font-size: 13px;
+      }
+
+      .detail-pill span {
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-size: 10px;
+        color: var(--text-muted);
+      }
+
+      input {
+        border-radius: 18px;
+        border-color: rgba(110, 82, 58, 0.12);
+        background: rgba(245, 236, 224, 0.86);
+        color: var(--text-primary);
+        padding: 16px 18px;
+      }
+
+      input:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 5px rgba(147, 103, 73, 0.12);
+        background: rgba(255, 251, 246, 0.96);
+      }
+
+      .captcha-label {
+        justify-content: space-between;
+      }
+
+      .captcha-label span:first-child {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .captcha-badge {
+        background: var(--primary-light);
+        color: var(--primary-dark);
+        padding: 6px 10px;
+        letter-spacing: 0.12em;
+      }
+
+      .captcha-container {
+        border-radius: 24px;
+        border-color: rgba(110, 82, 58, 0.12);
+        background:
+          radial-gradient(circle at top right, rgba(147, 103, 73, 0.1), transparent 32%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.54), transparent 18%),
+          var(--bg-input);
+      }
+
+      .captcha-container.verified {
+        box-shadow: 0 18px 40px rgba(80, 120, 90, 0.14);
+      }
+
+      .neural-animation {
+        width: 74px;
+        height: 74px;
+        border-radius: 22px;
+        border: 1px solid rgba(110, 82, 58, 0.1);
+        background: rgba(255, 251, 245, 0.78);
+      }
+
+      .neural-node {
+        background: var(--primary);
+      }
+
+      .neural-node:nth-child(6) {
+        background: var(--success);
+      }
+
+      .neural-lines line {
+        stroke: var(--primary);
+      }
+
+      .verify-btn,
+      .submit-btn,
+      .verification-btn.primary {
+        border-radius: 18px;
+        box-shadow: 0 16px 28px rgba(111, 77, 52, 0.18);
+      }
+
+      .verify-btn {
+        width: 100%;
+        padding: 16px 24px;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      }
+
+      .verify-btn:hover {
+        box-shadow: 0 20px 32px rgba(111, 77, 52, 0.22);
+      }
+
+      .submit-btn {
+        background: linear-gradient(135deg, #738050, #52613a);
+      }
+
+      .submit-btn:hover:not(:disabled) {
+        box-shadow: 0 20px 34px rgba(82, 97, 58, 0.2);
+      }
+
+      .progress-bar {
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(110, 82, 58, 0.12);
+      }
+
+      .progress-fill {
+        border-radius: 999px;
+        background: linear-gradient(90deg, var(--primary), var(--accent));
+      }
+
+      .progress-step {
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.46);
+        border: 1px solid rgba(110, 82, 58, 0.08);
+        color: var(--text-muted);
+      }
+
+      .progress-step.active {
+        color: var(--primary-dark);
+        background: rgba(147, 103, 73, 0.12);
+      }
+
+      .progress-step.done {
+        background: rgba(80, 120, 90, 0.14);
+      }
+
+      .captcha-status {
+        color: var(--text-muted);
+      }
+
+      .verification-panel {
+        border-radius: 24px;
+        border-color: rgba(110, 82, 58, 0.12);
+        background:
+          linear-gradient(180deg, rgba(147, 103, 73, 0.08), transparent),
+          rgba(252, 245, 236, 0.94);
+      }
+
+      .verification-chip {
+        background: rgba(147, 103, 73, 0.12);
+        color: var(--primary-dark);
+      }
+
+      .verification-btn {
+        border-radius: 14px;
+        border-color: rgba(110, 82, 58, 0.12);
+        background: rgba(255, 251, 246, 0.92);
+      }
+
+      .verification-btn.secondary {
+        background: rgba(167, 122, 72, 0.12);
+        color: var(--warning);
+      }
+
+      .verification-btn.ghost {
+        color: var(--text-secondary);
+      }
+
+      .info-section {
+        border-top: 1px solid var(--border);
+      }
+
+      .info-item {
+        border-radius: 18px;
+        background: rgba(245, 236, 224, 0.74);
+        border: 1px solid rgba(110, 82, 58, 0.08);
+      }
+
+      .info-item:hover {
+        background: rgba(255, 252, 247, 0.92);
+      }
+
+      .footer {
+        max-width: 1320px;
+        margin: 18px auto 0;
+        padding: 0 6px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        color: var(--text-muted);
+      }
+
+      .footer-links {
+        margin-top: 0;
+        gap: 10px;
+      }
+
+      .footer-links a {
+        text-decoration: none;
+      }
+
+      @media (max-width: 1100px) {
+        .page-shell {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .hero-grid,
+        .hero-detail-row,
+        .detail-strip {
+          grid-template-columns: 1fr;
+        }
+
+        .footer {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
     </style>
   </head>
   <body>
     <div class="bg-grid"></div>
     <div class="bg-glow"></div>
-
-    <div class="header">
-      <div class="logo">
-        <div class="logo-icon">
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="white"
-            stroke-width="2"
-          >
-            <circle cx="12" cy="12" r="3" />
-            <path
-              d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"
-            />
-          </svg>
+    <div class="page-shell">
+      <div class="header">
+        <div class="logo">
+          <div class="logo-icon">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="white"
+              stroke-width="2"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"
+              />
+            </svg>
+          </div>
+          <span class="logo-text">PoUW CAPTCHA</span>
         </div>
-        <span class="logo-text">PoUW CAPTCHA</span>
+        <div class="hero-kicker">Adaptive Browser Verification</div>
+        <h1 class="hero-title">Bot defense that feels like a product, not a puzzle.</h1>
+        <p class="tagline">
+          This demo shows how a visitor can prove legitimacy by donating a tiny
+          burst of useful machine learning work. The flow stays fast for real
+          people while still producing verifiable compute for the system.
+        </p>
+        <div class="hero-grid">
+          <article class="hero-card">
+            <div class="hero-card-label">Presentation Story</div>
+            <h2 class="hero-card-title">One interaction, three signals.</h2>
+            <p class="hero-card-copy">
+              The browser executes an ML shard, the server verifies that work was
+              actually performed, and the dashboard records a live inference event
+              that can later feed review and dataset workflows.
+            </p>
+            <div class="hero-card-footer">
+              <span class="signal-chip">Client-side inference</span>
+              <span class="signal-chip">Adaptive friction</span>
+              <span class="signal-chip">Human fallback</span>
+            </div>
+          </article>
+          <div class="hero-metrics">
+            <article class="hero-metric">
+              <div class="hero-metric-label">User Experience</div>
+              <div class="hero-metric-value">low<span>friction</span></div>
+              <p class="hero-metric-copy">
+                A standard form flow, a single verification action, and no distorted challenge.
+              </p>
+            </article>
+            <article class="hero-metric">
+              <div class="hero-metric-label">Value Thesis</div>
+              <div class="hero-metric-value">useful<span>compute</span></div>
+              <p class="hero-metric-copy">
+                Anti-bot work becomes measurable ML effort instead of wasted hashes.
+              </p>
+            </article>
+          </div>
+        </div>
+        <div class="hero-detail-row">
+          <div class="hero-detail">
+            <div class="panel-kicker">What judges see</div>
+            <p>The left panel explains the system. The right panel is the live product proof.</p>
+          </div>
+          <div class="hero-detail">
+            <div class="panel-kicker">What users see</div>
+            <p>A normal website interaction with a short verification state instead of a puzzle.</p>
+          </div>
+          <div class="hero-detail">
+            <div class="panel-kicker">What servers keep</div>
+            <p>Timing, predicted label, validity, and optional human verification signals.</p>
+          </div>
+        </div>
       </div>
-      <p class="tagline">Proof-of-Useful-Work Security Verification</p>
-    </div>
 
     <div class="container">
+      <div class="panel-head">
+        <div class="panel-kicker">Live Demo Screen</div>
+        <h2 class="panel-title">Run the verification flow.</h2>
+        <p class="panel-copy">
+          Fill a standard form, trigger the browser-side computation, and then open
+          the dashboard to watch the inference record appear in real time.
+        </p>
+        <div class="detail-strip">
+          <div class="detail-pill"><strong>Captcha</strong><span>Real ML shard</span></div>
+          <div class="detail-pill"><strong>Proof</strong><span>Validated output</span></div>
+          <div class="detail-pill"><strong>Review</strong><span>Human-ready path</span></div>
+        </div>
+      </div>
       <form id="demo-form">
         <div class="form-group">
           <label for="email">Email Address</label>
@@ -836,7 +1431,7 @@
         <div class="captcha-section">
           <div class="captcha-label">
             <span>Security Verification</span>
-            <span class="captcha-badge">ML-Powered</span>
+            <span class="captcha-badge">Live ML Path</span>
           </div>
 
           <div class="captcha-container" id="captcha-box">
@@ -862,7 +1457,7 @@
 
               <button type="button" class="verify-btn" id="verify-btn">
                 <span class="icon">&#9889;</span>
-                <span>Verify I'm Human</span>
+                <span>Run Verification</span>
               </button>
 
               <div class="progress-container" id="progress-container">
@@ -882,14 +1477,14 @@
               </div>
 
               <p class="captcha-status" id="captcha-status">
-                Click to run ML inference verification
+                Run the live browser-side inference path for this visitor session.
               </p>
             </div>
           </div>
         </div>
 
         <button type="submit" class="submit-btn" id="submit-btn" disabled>
-          Submit Form
+          Submit Protected Form
         </button>
       </form>
 
@@ -926,41 +1521,40 @@
       <div class="info-section">
         <div class="info-title">
           <span>&#128161;</span>
-          <span>How PoUW Works</span>
+          <span>What this screen is proving</span>
         </div>
         <div class="info-grid">
           <div class="info-item">
             <span class="info-icon">&#129504;</span>
             <span class="info-text"
-              >Your browser runs real neural network inference</span
+              >The browser executes a real inference shard instead of a fake waiting state.</span
             >
           </div>
           <div class="info-item">
             <span class="info-icon">&#9889;</span>
             <span class="info-text"
-              >Computation contributes to AI model training</span
+              >Difficulty can scale with trust, so regular visitors stay low-friction.</span
             >
           </div>
           <div class="info-item">
             <span class="info-icon">&#128274;</span>
-            <span class="info-text">Privacy-preserving by design</span>
+            <span class="info-text">Verification and logging happen without exposing private user content.</span>
           </div>
           <div class="info-item">
             <span class="info-icon">&#9989;</span>
-            <span class="info-text">No puzzles or distorted images</span>
+            <span class="info-text">Optional review keeps a human-in-the-loop path available for hard cases.</span>
           </div>
         </div>
       </div>
     </div>
+    </div>
 
     <div class="footer">
-      <p>
-        Powered by <a href="#">PoUW CAPTCHA</a> - Making bots do useful work
-      </p>
+      <p>PoUW CAPTCHA demo surface for adaptive proof-of-useful-work verification.</p>
       <div class="footer-links">
-        <a href="#">Documentation</a>
-        <a href="#">GitHub</a>
-        <a href="#">Privacy</a>
+        <a href="/dashboard">Open Dashboard</a>
+        <a href="/docs">API Docs</a>
+        <a href="/health">Health</a>
       </div>
     </div>
 
