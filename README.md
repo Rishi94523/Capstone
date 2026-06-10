@@ -2,15 +2,68 @@
 
 **Proof-of-Useful-Work CAPTCHA System**
 
-A web-based CAPTCHA system that replaces traditional puzzle-based CAPTCHAs with productive machine learning computation executed inside the user's browser.
+PoUW CAPTCHA replaces traditional puzzle CAPTCHAs with useful browser-side ML
+computation. A user contributes a verified segment of inference work, the
+server checks that work cheaply, and the completed distributed inference can
+feed a human-verified golden dataset.
 
-## Features
+## Current Implementation
 
-- **Useful Computation**: Browser performs ML inference instead of solving puzzles
-- **Security**: Computational cost makes bot attacks economically expensive
-- **Golden Dataset**: Human-verified labels improve ML model training
-- **Privacy-First**: All computation happens locally in the browser
-- **Accessible**: No distorted images or audio challenges; WCAG 2.2 compliant
+- Browser widget computes assigned shards of a real trained model.
+- Backend coordinates distributed inference runs across CAPTCHA sessions.
+- Server verifies computation with commitment hashes, secret projection checks,
+  and occasional spot audits.
+- Human verification can confirm completed labels into the golden dataset.
+- The checked-in model is `mnist-tiny`, a dense MNIST classifier.
+
+## Model
+
+The current model lives in `models/mnist-tiny/`:
+
+```text
+models/mnist-tiny/
+├── manifest.json
+└── weights.npz
+```
+
+`mnist-tiny` is a dense `784 -> 128 -> 64 -> 10` classifier trained on MNIST.
+The manifest pins real SHA-256 checksums for each layer and a model checksum
+derived from those layer checksums.
+
+## Runtime Flow
+
+1. Browser calls `POST /api/v1/captcha/init`.
+2. Server risk-scores the session and claims the next pipeline segment.
+3. Server returns the assigned dense layer shard(s), input activation, labels,
+   checksums, and timing expectation.
+4. Browser verifies shard checksums and runs the assigned layer segment.
+5. Browser submits pre-activation vectors, output commitments, proof hash, and
+   timing to `POST /api/v1/captcha/submit`.
+6. Server verifies the proof without routinely recomputing the segment.
+7. The pipeline stores the verified activation for the next solver, or derives
+   the final prediction if the model is complete.
+8. Optional human verification contributes to the golden dataset.
+9. Server issues a signed CAPTCHA token.
+
+## Project Structure
+
+```text
+packages/
+├── widget/          # Browser CAPTCHA widget and dense shard executor
+└── sdk/             # Vanilla/React/Vue integration helpers
+server/
+├── app/api/         # FastAPI CAPTCHA, verification, and dashboard endpoints
+├── app/core/        # Risk scoring, task assignment, distributed pipeline
+├── app/ml/          # Model store and proof verifier
+├── app/models/      # SQLAlchemy models
+├── app/schemas/     # Pydantic request/response schemas
+└── app/services/    # Golden dataset and reputation services
+models/
+└── mnist-tiny/      # Current trained model and manifest
+scripts/            # Training, seeding, retraining, and E2E client scripts
+demo/frontend/      # Static demo frontend
+docs/               # Architecture and workflow docs
+```
 
 ## Quick Start
 
@@ -18,260 +71,127 @@ A web-based CAPTCHA system that replaces traditional puzzle-based CAPTCHAs with 
 
 - Node.js 18+
 - Python 3.11+
-- Docker & Docker Compose
-- PostgreSQL 15+ (or use Docker)
-- Redis 7+ (or use Docker)
+- Redis 7+
 
-### Development Setup
+PostgreSQL is supported through configuration, but local development defaults
+to SQLite.
 
-1. **Clone and install dependencies**
+### Install
 
 ```bash
-# Install frontend dependencies
 npm install
 
-# Install Python dependencies
 cd server
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-2. **Start infrastructure with Docker**
-
-```bash
-docker-compose -f docker/docker-compose.yml up -d postgres redis
-```
-
-3. **Configure environment**
-
-```bash
-cp .env.example .env
-# Edit .env with your settings
-```
-
-4. **Run database migrations**
+### Seed Data
 
 ```bash
 cd server
-alembic upgrade head
+.venv\Scripts\python ..\scripts\seed_data.py --count 200
 ```
 
-5. **Start the development servers**
+### Run Backend
 
 ```bash
-# Terminal 1: Backend API
 cd server
-uvicorn app.main:app --reload
-
-# Terminal 2: Widget development
-cd packages/widget
-npm run dev
-
-# Terminal 3: Demo site (optional)
-# Open demo/frontend/index.html in browser
+.venv\Scripts\python -m uvicorn app.main:app --port 8000
 ```
 
-6. **Access the application**
+Useful local endpoints:
 
-- API: http://localhost:8000
-- API Docs: http://localhost:8000/docs
-- Widget Dev: http://localhost:5173
-- Demo: http://localhost:3000
+- API: `http://localhost:8000`
+- Docs: `http://localhost:8000/docs`
+- Demo: `http://localhost:8000/demo`
+- Dashboard: `http://localhost:8000/dashboard`
+- Pipeline runs: `http://localhost:8000/api/v1/pipeline/runs`
 
-## Project Structure
+### Run Widget Dev Server
 
-```
-├── packages/
-│   ├── widget/          # Client-side CAPTCHA widget (TF.js + ONNX)
-│   └── sdk/             # NPM SDK for framework integration
-├── server/              # FastAPI backend
-│   ├── app/
-│   │   ├── api/         # REST API endpoints
-│   │   ├── core/        # Task coordination, risk scoring
-│   │   ├── ml/          # Inference validation
-│   │   ├── models/      # SQLAlchemy models
-│   │   ├── schemas/     # Pydantic schemas
-│   │   └── services/    # Golden dataset, reputation
-│   └── alembic/         # Database migrations
-├── models/              # Pre-trained ML models
-├── demo/                # Demo application
-├── docker/              # Docker configuration
-└── docs/                # Documentation
+```bash
+npm run dev --workspace=packages/widget
 ```
 
-## Architecture
+### Simulate Solvers
 
-```
-┌─────────────────────────────────────────────────────┐
-│                   User's Browser                     │
-│  ┌───────────────────────────────────────────────┐  │
-│  │             PoUW CAPTCHA Widget                │  │
-│  │  • TensorFlow.js / ONNX Runtime               │  │
-│  │  • ML Inference (300-800ms)                   │  │
-│  │  • Human Verification UI                      │  │
-│  └───────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────┐
-│                   FastAPI Server                     │
-│  • Task Coordinator (risk-based difficulty)         │
-│  • Inference Validator                              │
-│  • Golden Dataset Pipeline                          │
-│  • Reputation System                                │
-└─────────────────────────────────────────────────────┘
-                          │
-              ┌───────────┴───────────┐
-              ▼                       ▼
-       ┌────────────┐          ┌────────────┐
-       │ PostgreSQL │          │   Redis    │
-       │ (data)     │          │ (sessions) │
-       └────────────┘          └────────────┘
+```bash
+cd server
+.venv\Scripts\python ..\scripts\e2e_client.py --solves 12
 ```
 
-## Integration
+The E2E client behaves like the browser shard engine: it verifies checksums,
+computes assigned dense layer segments, submits pre-activation proofs, and
+answers verification prompts.
 
-### Script Tag (Recommended)
+## API
+
+### Initialize CAPTCHA
+
+```http
+POST /api/v1/captcha/init
+```
+
+### Submit Computation Proof
+
+```http
+POST /api/v1/captcha/submit
+```
+
+### Submit Human Verification
+
+```http
+POST /api/v1/captcha/verify
+```
+
+### Validate Token
+
+```http
+GET /api/v1/captcha/validate/{token}
+```
+
+## Browser Integration
 
 ```html
-<script src="https://cdn.pouw.dev/widget/v1/pouw-captcha.js"></script>
+<script src="/path/to/pouw-captcha.umd.js"></script>
+<div id="captcha-container"></div>
 <script>
   const captcha = new PoUWCaptcha({
-    siteKey: 'your-site-key',
+    siteKey: 'pk_demo_1234567890',
+    apiUrl: 'http://localhost:8000/api/v1',
     container: '#captcha-container',
     onSuccess: (token) => {
-      // Send token to your backend for validation
       console.log('CAPTCHA solved:', token);
     },
   });
 </script>
-<div id="captcha-container"></div>
 ```
 
-### React
+## Verification Model
 
-```jsx
-import { usePoUWCaptcha } from '@pouw/sdk/react';
+The server validates submitted work in three layers:
 
-function MyForm() {
-  const { token, isVerified, CaptchaWidget } = usePoUWCaptcha({
-    siteKey: 'your-site-key',
-  });
+- Commitment hashes bind each submitted pre-activation vector to the task,
+  sample, and model segment.
+- Secret projection checks verify dense layer equations at `O(input + output)`
+  cost per projection instead of recomputing the client-side `O(input *
+  output)` matrix multiply.
+- Probabilistic spot audits occasionally recompute the segment to catch
+  implementation drift and bound adaptive attacks.
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!isVerified) return;
+See [docs/CORE_WORKFLOW.md](docs/CORE_WORKFLOW.md) for the full design.
 
-    // Validate token on your backend
-    await submitForm({ captchaToken: token });
-  };
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <CaptchaWidget />
-      <button type="submit" disabled={!isVerified}>
-        Submit
-      </button>
-    </form>
-  );
-}
-```
-
-## API Reference
-
-### Initialize CAPTCHA
-
-```
-POST /api/v1/captcha/init
-```
-
-### Submit Prediction
-
-```
-POST /api/v1/captcha/submit
-```
-
-### Submit Verification
-
-```
-POST /api/v1/captcha/verify
-```
-
-### Validate Token (Server-to-Server)
-
-```
-GET /api/v1/captcha/validate/{token}
-```
-
-See [API Documentation](docs/API.md) for full details.
-
-## Configuration
-
-Key environment variables:
-
-| Variable                    | Description                                   | Default |
-| --------------------------- | --------------------------------------------- | ------- |
-| `DATABASE_URL`              | PostgreSQL connection URL                     | -       |
-| `REDIS_URL`                 | Redis connection URL                          | -       |
-| `SECRET_KEY`                | JWT signing key                               | -       |
-| `VERIFICATION_RATE`         | Rate of sessions requiring human verification | 0.2     |
-| `NORMAL_DIFFICULTY_TIME_MS` | Expected inference time for normal users      | 500     |
-| `CONSENSUS_THRESHOLD`       | Agreement required for golden dataset         | 0.8     |
-
-See [.env.example](.env.example) for all options.
-
-## Testing
+## Tests
 
 ```bash
-# Backend tests
-cd server
-pytest
-
-# Widget tests
-cd packages/widget
 npm test
 
-# E2E tests
-npm run test:e2e
+cd server
+.venv\Scripts\pytest
 ```
-
-## Deployment
-
-### Docker
-
-```bash
-docker-compose -f docker/docker-compose.yml up -d
-```
-
-### AWS
-
-See [deployment documentation](docs/DEPLOYMENT.md) for AWS ECS/Fargate setup.
-
-## Security
-
-- Adaptive difficulty based on risk scoring
-- Known-sample injection for bot detection
-- Rate limiting and behavioral analysis
-- No raw data leaves the browser
-- GDPR/CCPA compliant
-
-See [Security Model](docs/SECURITY.md) for details.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests
-5. Submit a pull request
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Acknowledgments
-
-- TensorFlow.js team for browser ML
-- ONNX Runtime for cross-platform inference
-- The open source community
+MIT

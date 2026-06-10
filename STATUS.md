@@ -1,118 +1,71 @@
-# PoUW CAPTCHA System - Status
+# PoUW CAPTCHA System - Current Status
 
-## Current Status: RUNNING ✓
+## Status
 
-The PoUW CAPTCHA system is now running in demo mode!
+The project currently implements a working PoUW CAPTCHA demo around a real
+trained MNIST model and a distributed dense-layer inference pipeline.
 
-### What's Running
+## What Is Implemented
 
-**Backend API Server:**
+- FastAPI backend with CAPTCHA init, submit, verify, validate, demo, dashboard,
+  and pipeline inspection endpoints.
+- Browser widget that executes assigned dense model shards.
+- `mnist-tiny` model with checksum-pinned dense layers.
+- Server-side proof verification using commitments, secret projections, and
+  probabilistic spot audits.
+- Distributed pipeline runs where multiple solvers can piece together one full
+  inference.
+- Optional human verification that feeds the golden dataset flow.
+- E2E client simulator for exercising the live system.
 
-- URL: http://localhost:8000
-- API Documentation: http://localhost:8000/docs
-- Health Check: http://localhost:8000/health
-- Stats: http://localhost:8000/stats
+## Current Model
 
-**Demo Application:**
-
-- Located at: `demo/frontend/index.html`
-- Open directly in your browser to test the CAPTCHA
-
-### About Datasets & Models
-
-**Current Setup:**
-The system is running in **DEMO MODE** which means:
-
-❌ **No Real ML Models Downloaded**
-
-- The system doesn't require actual TensorFlow.js or ONNX models to demonstrate the flow
-- Model URLs point to placeholder endpoints
-- Inference is simulated server-side
-
-❌ **No Real Datasets**
-
-- No CIFAR-10 or IMDB datasets are needed for the demo
-- The server generates dummy samples on the fly
-- Labels are randomized from the CIFAR-10 label set
-
-**What It's Running On:**
-
-1. **SQLite Database** - Lightweight, in-memory storage
-2. **FastAPI Demo Server** - Simplified version without heavy ML dependencies
-3. **In-Memory Session Storage** - No Redis required for demo
-4. **Mock ML Tasks** - Simulates inference without actual model execution
-
-### To Use Real ML Models:
-
-If you want to use actual machine learning models, you would need to:
-
-1. **Download Pre-trained Models:**
-
-   ```bash
-   # MobileNetV2 for CIFAR-10 (TensorFlow.js format)
-   # ~3MB
-   wget https://storage.googleapis.com/tfjs-models/tfjs/mobilenet_v1_0.25_224/model.json
-
-   # DistilBERT for IMDB sentiment (ONNX format)
-   # ~25MB
-   # Download from Hugging Face
-   ```
-
-2. **Convert Models:**
-
-   ```bash
-   # TensorFlow → TensorFlow.js
-   tensorflowjs_converter --input_format keras model.h5 tfjs_model/
-
-   # PyTorch → ONNX
-   # (use PyTorch's torch.onnx.export)
-   ```
-
-3. **Host Models:**
-   - Put model files in `models/` directory
-   - Serve via CDN or local file server
-   - Update `MODEL_CDN_URL` in `.env`
-
-4. **Add Real Datasets:**
-   ```python
-   # scripts/load_cifar10.py
-   from tensorflow.keras.datasets import cifar10
-   (x_train, y_train), (x_test, y_test) = cifar10.load_data()
-   # Store in database
-   ```
-
-### Quick Test
-
-Try the API:
-
-```bash
-# Health check
-curl http://localhost:8000/health
-
-# Get stats
-curl http://localhost:8000/stats
-
-# Initialize CAPTCHA
-curl -X POST http://localhost:8000/api/v1/captcha/init \
-  -H "Content-Type: application/json" \
-  -d '{
-    "site_key": "demo_key",
-    "client_metadata": {
-      "user_agent": "curl/7.0",
-      "language": "en",
-      "timezone": "UTC"
-    }
-  }'
+```text
+models/mnist-tiny/
+├── manifest.json
+└── weights.npz
 ```
 
-### Next Steps
+The active model is a dense MNIST classifier:
 
-1. ✅ Backend server running (demo mode)
-2. ⏳ Install widget dependencies (optional for demo)
-3. ⏳ Download real ML models (for production)
-4. ⏳ Set up PostgreSQL + Redis (for production)
-5. ⏳ Configure cloud deployment (AWS)
+```text
+784 -> 128 -> 64 -> 10
+```
 
-**For now, you can test the complete CAPTCHA flow using the demo application!**
+The manifest includes per-layer SHA-256 checksums and a model checksum. Browser
+clients verify shard integrity before computation.
 
-Open `demo/frontend/index.html` in your browser to see it in action.
+## Local Endpoints
+
+When the backend is running on port `8000`:
+
+- Health: `http://localhost:8000/health`
+- Readiness: `http://localhost:8000/ready`
+- API docs: `http://localhost:8000/docs`
+- Demo: `http://localhost:8000/demo`
+- Dashboard: `http://localhost:8000/dashboard`
+- Pipeline runs: `http://localhost:8000/api/v1/pipeline/runs`
+
+## Quick Checks
+
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8000/ready
+curl http://localhost:8000/api/v1/pipeline/runs
+```
+
+Run the solver simulator:
+
+```bash
+cd server
+.venv\Scripts\python ..\scripts\e2e_client.py --solves 12
+```
+
+## Production Gaps To Treat Carefully
+
+- The current model is intentionally small for a capstone/demo environment.
+- Redis should be available for verification request storage and risk tracking.
+- Production deployment should use strong secrets, constrained CORS, real site
+  key/domain validation, rate limits, monitoring, and hardened replay controls.
+- The proof system gives strong probabilistic assurance, not mathematical
+  impossibility.
