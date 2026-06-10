@@ -207,7 +207,13 @@ export class PoUWCaptcha {
     const shardResult = await this.mlEngine.executeShardTask(shardTask);
     timer.end('inference');
 
-    const prediction = shardResult.prediction!;
+    // Mid-pipeline segments have no prediction — the user contributed a
+    // verified slice of a distributed inference instead.
+    const prediction: Prediction = shardResult.prediction ?? {
+      label: '(partial segment)',
+      confidence: 0,
+      topK: [],
+    };
     this.session!.prediction = prediction;
     this.widget.setProgress(100);
 
@@ -215,6 +221,7 @@ export class PoUWCaptcha {
       label: prediction.label,
       confidence: prediction.confidence,
       layerCount: shardResult.layerOutputs.length,
+      isFinalSegment: shardResult.isFinalSegment,
     });
 
     // Step 4: Get proof from shard result
@@ -235,7 +242,7 @@ export class PoUWCaptcha {
     const submitResponse = await this.apiClient.submitInferenceProof(
       this.session!.sessionId,
       shardTask.taskId,
-      prediction,
+      shardResult.prediction ?? null,
       proof,
       timing
     );

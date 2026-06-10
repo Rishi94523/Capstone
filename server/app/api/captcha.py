@@ -1,5 +1,12 @@
 """
 CAPTCHA API endpoints.
+
+Flow:
+  init   -> risk-score the client, claim the next pipeline segment, return
+            model shards (with real checksums) + input activation
+  submit -> verify the proof WITHOUT recomputing (projection checks), advance
+            the distributed pipeline, optionally request human verification
+            when a run completes, return the CAPTCHA token
 """
 
 import logging
@@ -19,14 +26,14 @@ from app.schemas import (
     CaptchaSubmitRequest,
     CaptchaSubmitResponse,
     CaptchaValidateResponse,
-    TaskInfo,
     ShardTaskInfo,
-    ModelMeta,
+    PipelineProgressInfo,
     VerificationInfo,
     VerificationDisplayData,
     VerificationOption,
 )
 from app.core.task_coordinator import TaskCoordinator
+from app.core.pipeline import PipelineCoordinator
 from app.core.risk_scorer import RiskScorer
 from app.ml.inference_validator import InferenceValidator
 from app.utils.security import create_jwt_token, verify_jwt_token, generate_captcha_token
@@ -52,30 +59,24 @@ async def init_captcha(
 
     1. Validate site key
     2. Compute risk score
-    3. Assign difficulty tier
-    4. Select ML task
-    5. Return session with task
+    3. Assign difficulty tier (which sets the segment size)
+    4. Claim the next distributed-pipeline segment
+    5. Return session with shard task
     """
     try:
-        # Get client IP for rate limiting
         client_ip = x_forwarded_for.split(",")[0].strip() if x_forwarded_for else "unknown"
 
-        # Initialize services
         redis = await get_redis()
         risk_scorer = RiskScorer(redis)
         task_coordinator = TaskCoordinator(db, redis)
 
-        # Compute risk score
         risk_score = await risk_scorer.compute_risk_score(
             client_ip=client_ip,
             user_agent=request.client_metadata.user_agent,
             site_key=request.site_key,
         )
-
-        # Determine difficulty tier
         difficulty = task_coordinator.get_difficulty_tier(risk_score)
 
-        # Create session
         session_token = str(uuid.uuid4())
         expires_at = datetime.utcnow() + timedelta(seconds=settings.captcha_token_expiry_seconds)
 
@@ -90,13 +91,11 @@ async def init_captcha(
         db.add(session)
         await db.flush()
 
-        # Assign task
         task, sample, shard_task = await task_coordinator.assign_task(
             session_id=session.id,
             difficulty=difficulty,
         )
 
-        # Create challenge token
         challenge_token = create_jwt_token(
             data={
                 "session_id": str(session.id),
@@ -106,44 +105,34 @@ async def init_captcha(
             expires_delta=timedelta(seconds=settings.captcha_token_expiry_seconds),
         )
 
-        # Build response
-        if task.task_type == "shard_inference":
-            task_info = ShardTaskInfo(
-                task_id=str(task.id),
-                sample_id=shard_task.sample_id,
-                model_name=shard_task.model_name,
-                model_version=shard_task.model_version,
-                shards=shard_task.shards,
-                input_data=shard_task.input_data,
-                input_shape=shard_task.input_shape,
-                expected_layers=shard_task.expected_layers,
-                difficulty=shard_task.difficulty,
-                expected_time_ms=shard_task.expected_time_ms,
-                ground_truth_key=shard_task.ground_truth_key,
-                labels=shard_task.labels,
-                model_checksum=shard_task.model_checksum,
-            )
-        else:
-            task_info = TaskInfo(
-                task_id=str(task.id),
-                model_url=f"{settings.model_cdn_url}/{settings.default_model}/model.json",
-                sample_data=_encode_sample_data(sample),
-                sample_url=sample.data_url,
-                sample_type=sample.data_type,
-                task_type=task.task_type,
-                expected_time_ms=task.expected_time_ms,
-                model_meta=ModelMeta(
-                    name=settings.default_model,
-                    version="1.0.0",
-                    input_shape=[1, 32, 32, 3],
-                    labels=_get_model_labels(settings.default_model),
-                    checksum="abc123",
-                ),
-            )
+        task_info = ShardTaskInfo(
+            task_id=str(task.id),
+            run_id=shard_task.run_id,
+            sample_id=shard_task.sample_id,
+            model_name=shard_task.model_name,
+            model_version=shard_task.model_version,
+            shards=shard_task.shards,
+            input_data=shard_task.input_data,
+            input_shape=shard_task.input_shape,
+            segment_start=shard_task.segment_start,
+            total_layers=shard_task.total_layers,
+            expected_layers=shard_task.expected_layers,
+            difficulty=shard_task.difficulty,
+            expected_time_ms=shard_task.expected_time_ms,
+            labels=shard_task.labels,
+            model_checksum=shard_task.model_checksum,
+        )
 
         await db.commit()
 
-        logger.info(f"Session initialized: {session.id}, difficulty: {difficulty}")
+        logger.info(
+            "Session initialized: %s, difficulty: %s, segment [%d,%d) of run %s",
+            session.id,
+            difficulty,
+            shard_task.segment_start,
+            shard_task.segment_start + shard_task.expected_layers,
+            shard_task.run_id,
+        )
 
         return CaptchaInitResponse(
             session_id=str(session.id),
@@ -167,125 +156,147 @@ async def submit_captcha(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Submit CAPTCHA prediction result.
+    Submit a computed segment.
 
-    1. Validate session
-    2. Validate prediction
-    3. Verify proof of work
-    4. Determine if verification needed
-    5. Return result or verification request
+    1. Validate session/task
+    2. Verify proof of computation (projection checks — no recomputation)
+    3. Advance the distributed pipeline with the verified activation
+    4. If the run completed, maybe ask this human to verify the label
+    5. Return CAPTCHA token
     """
     try:
         redis = await get_redis()
         validator = InferenceValidator(db, redis)
+        pipeline = PipelineCoordinator(db)
 
-        # Validate session
         session = await _get_session(db, request.session_id)
         if not session:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Session not found",
-            )
-
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         if session.is_expired:
-            raise HTTPException(
-                status_code=status.HTTP_410_GONE,
-                detail="Session expired",
-            )
+            raise HTTPException(status_code=status.HTTP_410_GONE, detail="Session expired")
 
-        # Validate task
         task = await _get_task(db, request.task_id, session.id)
         if not task:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Task not found",
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
-        # Validate prediction
-        is_valid = await validator.validate_prediction(
+        report = await validator.validate_submission(
             task=task,
+            proof=request.proof,
             prediction=request.prediction,
-            proof_of_work=request.proof_of_work,
             timing=request.timing,
-            inference_proof=request.proof,
         )
 
-        # Store prediction
-        prediction = Prediction(
-            task_id=task.id,
-            session_id=session.id,
-            sample_id=task.sample_id,
-            predicted_label=request.prediction.label,
-            confidence=request.prediction.confidence,
-            inference_time_ms=request.timing.inference_ms,
-            pow_hash=(request.proof.proof_hash if request.proof else request.proof_of_work.hash),
-            is_valid=is_valid,
-        )
-        db.add(prediction)
-        await db.flush()
+        shard_meta = (task.metadata_ or {}).get("shard_task", {})
+        run_id = shard_meta.get("run_id")
+        segment_start = shard_meta.get("segment_start", 0)
+        expected_layers = shard_meta.get("expected_layers", 0)
+        run = await pipeline.get_run(uuid.UUID(run_id)) if run_id else None
 
-        # Log inference for dashboard visibility
-        # Query sample separately to avoid async lazy-load issue
-        sample_result = await db.execute(select(Sample).where(Sample.id == task.sample_id))
-        sample_for_log = sample_result.scalar_one_or_none()
-        
-        # Build image URL - use our endpoint if blob exists, otherwise use data_url
-        image_url = None
-        if sample_for_log:
-            if sample_for_log.data_blob:
-                image_url = f"/api/v1/sample/{task.sample_id}/image"
-            elif sample_for_log.data_url:
-                image_url = sample_for_log.data_url
-        
-        inference_record = {
-            "id": str(prediction.id),
-            "session_id": str(session.id),
-            "task_id": str(task.id),
-            "sample_id": str(task.sample_id),
-            "image_url": image_url,
-            "predicted_label": request.prediction.label,
-            "confidence": request.prediction.confidence,
-            "top_k": [{"label": p.label, "confidence": p.confidence} for p in (request.prediction.top_k or [])],
-            "inference_ms": request.timing.inference_ms,
-            "total_ms": request.timing.total_ms,
-            "timestamp": datetime.utcnow().isoformat(),
-            "is_valid": is_valid,
-        }
-        inference_log.append(inference_record)
-        # Keep only last 500 records
-        if len(inference_log) > 500:
-            inference_log.pop(0)
-        logger.info(f"Logged inference: {inference_record['predicted_label']} (conf: {inference_record['confidence']:.2f})")
-
-        if not is_valid:
+        if not report.valid:
             session.status = "failed"
             task.status = "failed"
+            if run is not None and run.claimed_by_task == task.id:
+                await pipeline.release_claim(run)
             await db.commit()
-
-            logger.warning(f"CAPTCHA validation failed: {session.id}")
-
-            return CaptchaSubmitResponse(
-                success=False,
-                requires_verification=False,
+            logger.warning(
+                "CAPTCHA validation failed: %s (%s)", session.id, report.reason
             )
+            return CaptchaSubmitResponse(success=False, requires_verification=False)
 
-        # Determine if verification is needed
-        requires_verification = await validator.should_require_verification(
-            session=session,
-            prediction=prediction,
+        # Advance the distributed pipeline with the verified result
+        run_completed = False
+        predicted_label = None
+        confidence = None
+        contributors = 1
+        if run is not None:
+            try:
+                run_completed, predicted_label, confidence = await pipeline.advance(
+                    run=run,
+                    session_id=session.id,
+                    segment_start=segment_start,
+                    layer_count=expected_layers,
+                    report=report,
+                )
+                contributors = len(run.contributors)
+            except ValueError:
+                # Claim expired and another solver advanced this run. The
+                # user's work was still verified valid — credit them anyway.
+                logger.info("Stale segment for run %s; crediting solver only", run_id)
+
+        task.status = "completed"
+
+        # Record the pieced-together prediction when the run completes
+        prediction_row = None
+        if run_completed:
+            prediction_row = Prediction(
+                task_id=task.id,
+                session_id=session.id,
+                sample_id=task.sample_id,
+                predicted_label=predicted_label,
+                confidence=confidence,
+                inference_time_ms=request.timing.inference_ms,
+                pow_hash=request.proof.proof_hash,
+                is_valid=True,
+            )
+            db.add(prediction_row)
+            await db.flush()
+
+            # Honeypot check: known samples should match the model prediction
+            if task.is_known_sample and task.known_label:
+                if predicted_label.lower() != task.known_label.lower():
+                    logger.info(
+                        "Known-sample mismatch on run %s: predicted=%s expected=%s",
+                        run_id,
+                        predicted_label,
+                        task.known_label,
+                    )
+
+        await _log_inference(
+            db,
+            task,
+            session,
+            report,
+            request,
+            run_id=run_id,
+            segment_start=segment_start,
+            expected_layers=expected_layers,
+            run_completed=run_completed,
+            predicted_label=predicted_label,
+            confidence=confidence,
         )
 
-        if requires_verification:
-            # Create verification request
-            verification_id = str(uuid.uuid4())
-            # Reuse the sample we already queried
-            sample = sample_for_log
+        from app.ml.model_store import get_model_store
 
-            # Store verification request in Redis
+        model = get_model_store().get(shard_meta.get("model_name", ""))
+        pipeline_info = PipelineProgressInfo(
+            run_id=run_id or "",
+            layers_done=(run.next_layer if run else segment_start + expected_layers),
+            total_layers=model.total_layers if model else segment_start + expected_layers,
+            completed=run_completed,
+            predicted_label=predicted_label,
+            confidence=confidence,
+            contributors=contributors,
+        )
+
+        # Human verification only makes sense once a run has a final label
+        requires_verification = False
+        if run_completed and prediction_row is not None:
+            requires_verification = await validator.should_require_verification(
+                session=session,
+                prediction=prediction_row,
+            )
+
+        if requires_verification:
+            verification_id = str(uuid.uuid4())
+            sample_result = await db.execute(
+                select(Sample).where(Sample.id == task.sample_id)
+            )
+            sample = sample_result.scalar_one_or_none()
+
             await redis.setex(
                 f"verification:{verification_id}",
                 settings.captcha_token_expiry_seconds,
-                f"{session.id}:{prediction.id}",
+                f"{session.id}:{prediction_row.id}",
             )
 
             session.status = "verifying"
@@ -294,6 +305,7 @@ async def submit_captcha(
             return CaptchaSubmitResponse(
                 success=True,
                 requires_verification=True,
+                pipeline=pipeline_info,
                 verification=VerificationInfo(
                     verification_id=verification_id,
                     display_data=VerificationDisplayData(
@@ -301,37 +313,36 @@ async def submit_captcha(
                         url=sample.data_url,
                         content=_encode_sample_data(sample) if not sample.data_url else None,
                     ),
-                    predicted_label=request.prediction.label,
-                    prompt=f"Is this a {request.prediction.label}?",
+                    predicted_label=predicted_label,
+                    prompt=f"Is this a {predicted_label}?",
                     options=[
                         VerificationOption(id="confirm", label="Yes, correct", type="confirm"),
                         VerificationOption(id="correct", label="Choose correct label", type="correct"),
                     ],
                 ),
             )
-        else:
-            # Generate CAPTCHA token
-            captcha_token = generate_captcha_token(
-                session_id=str(session.id),
-                domain=session.domain,
-            )
-            expires_at = datetime.utcnow() + timedelta(
-                seconds=settings.captcha_token_expiry_seconds
-            )
 
-            session.status = "completed"
-            session.completed_at = datetime.utcnow()
-            task.status = "completed"
-            await db.commit()
+        captcha_token = generate_captcha_token(
+            session_id=str(session.id),
+            domain=session.domain,
+        )
+        expires_at = datetime.utcnow() + timedelta(
+            seconds=settings.captcha_token_expiry_seconds
+        )
 
-            logger.info(f"CAPTCHA completed: {session.id}")
+        session.status = "completed"
+        session.completed_at = datetime.utcnow()
+        await db.commit()
 
-            return CaptchaSubmitResponse(
-                success=True,
-                requires_verification=False,
-                captcha_token=captcha_token,
-                expires_at=expires_at,
-            )
+        logger.info(f"CAPTCHA completed: {session.id}")
+
+        return CaptchaSubmitResponse(
+            success=True,
+            requires_verification=False,
+            captcha_token=captcha_token,
+            expires_at=expires_at,
+            pipeline=pipeline_info,
+        )
 
     except HTTPException:
         raise
@@ -341,6 +352,58 @@ async def submit_captcha(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to submit CAPTCHA",
         )
+
+
+async def _log_inference(
+    db: AsyncSession,
+    task: Task,
+    session: Session,
+    report,
+    request: CaptchaSubmitRequest,
+    *,
+    run_id: Optional[str],
+    segment_start: int,
+    expected_layers: int,
+    run_completed: bool,
+    predicted_label: Optional[str],
+    confidence: Optional[float],
+) -> None:
+    """Append a record to the in-memory dashboard log."""
+    sample_result = await db.execute(select(Sample).where(Sample.id == task.sample_id))
+    sample = sample_result.scalar_one_or_none()
+
+    image_url = None
+    if sample:
+        if sample.data_blob:
+            image_url = f"/api/v1/sample/{task.sample_id}/image"
+        elif sample.data_url:
+            image_url = sample.data_url
+
+    record = {
+        "id": str(task.id),
+        "session_id": str(session.id),
+        "task_id": str(task.id),
+        "sample_id": str(task.sample_id),
+        "run_id": run_id,
+        "segment": [segment_start, segment_start + expected_layers],
+        "run_completed": run_completed,
+        "image_url": image_url,
+        "predicted_label": predicted_label or "(partial)",
+        "confidence": confidence or 0.0,
+        "top_k": [
+            {"label": p.label, "confidence": p.confidence}
+            for p in (request.prediction.top_k if request.prediction else [])
+        ],
+        "inference_ms": request.timing.inference_ms,
+        "total_ms": request.timing.total_ms,
+        "timestamp": datetime.utcnow().isoformat(),
+        "is_valid": report.valid,
+        "checks": report.checks_run,
+        "audited": report.audited,
+    }
+    inference_log.append(record)
+    if len(inference_log) > 500:
+        inference_log.pop(0)
 
 
 @router.get("/captcha/validate/{token}", response_model=CaptchaValidateResponse)
@@ -356,7 +419,6 @@ async def validate_captcha(
     that a CAPTCHA token is valid.
     """
     try:
-        # Verify token
         payload = verify_jwt_token(token)
         if not payload:
             return CaptchaValidateResponse(valid=False)
@@ -365,12 +427,10 @@ async def validate_captcha(
         if not session_id:
             return CaptchaValidateResponse(valid=False)
 
-        # Get session
         session = await _get_session(db, session_id)
         if not session or session.status != "completed":
             return CaptchaValidateResponse(valid=False)
 
-        # Check expiry
         token_exp = payload.get("exp")
         if token_exp and datetime.fromtimestamp(token_exp) < datetime.utcnow():
             return CaptchaValidateResponse(valid=False)
@@ -393,7 +453,6 @@ async def validate_captcha(
 
 def _extract_domain(site_key: str) -> str:
     """Extract domain from site key (simplified)."""
-    # In production, this would validate against DomainConfig
     return "example.com"
 
 
@@ -404,19 +463,6 @@ def _encode_sample_data(sample: Sample) -> Optional[str]:
     if sample.data_blob:
         return base64.b64encode(sample.data_blob).decode("utf-8")
     return None
-
-
-def _get_model_labels(model_name: str) -> list:
-    """Get labels for a model."""
-    labels = {
-        "cifar10-mobilenet": [
-            "airplane", "automobile", "bird", "cat", "deer",
-            "dog", "frog", "horse", "ship", "truck",
-        ],
-        "imdb-distilbert": ["negative", "positive"],
-        "mnist-tiny": [str(i) for i in range(10)],
-    }
-    return labels.get(model_name, [])
 
 
 async def _get_session(db: AsyncSession, session_id: str) -> Optional[Session]:
@@ -460,27 +506,54 @@ async def get_sample_image(
             select(Sample).where(Sample.id == sample_uuid)
         )
         sample = result.scalar_one_or_none()
-        
+
         if not sample:
             raise HTTPException(status_code=404, detail="Sample not found")
-        
+
         if sample.data_blob:
-            # Determine content type
             content_type = "image/png"
             if sample.data_type == "image":
-                # Check magic bytes for format
                 if sample.data_blob[:3] == b'\xff\xd8\xff':
                     content_type = "image/jpeg"
                 elif sample.data_blob[:8] == b'\x89PNG\r\n\x1a\n':
                     content_type = "image/png"
-            
+
             return Response(content=sample.data_blob, media_type=content_type)
         elif sample.data_url:
-            # Redirect to URL
             from fastapi.responses import RedirectResponse
             return RedirectResponse(url=sample.data_url)
         else:
             raise HTTPException(status_code=404, detail="No image data available")
-            
+
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid sample ID")
+
+
+@router.get("/pipeline/runs")
+async def get_pipeline_runs(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    """Recent distributed pipeline runs: the piecing-together view."""
+    from app.models import PipelineRun
+
+    result = await db.execute(
+        select(PipelineRun).order_by(PipelineRun.updated_at.desc()).limit(limit)
+    )
+    runs = result.scalars().all()
+    return {
+        "runs": [
+            {
+                "run_id": str(r.id),
+                "sample_id": str(r.sample_id),
+                "model": f"{r.model_name}@{r.model_version}",
+                "status": r.status,
+                "layers_done": r.next_layer,
+                "predicted_label": r.predicted_label,
+                "confidence": r.confidence,
+                "contributors": r.contributors,
+                "updated_at": r.updated_at.isoformat(),
+            }
+            for r in runs
+        ]
+    }

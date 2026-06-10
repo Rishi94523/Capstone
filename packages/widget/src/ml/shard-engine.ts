@@ -18,10 +18,12 @@ import { hashData } from '../utils/crypto';
  * Result from executing a model shard
  */
 export interface ShardExecutionResult {
-  /** Layer outputs for each executed layer */
+  /** Pre-activation outputs for each executed layer (proof material) */
   layerOutputs: Float32Array[];
-  /** Final prediction if applicable */
+  /** Final prediction; only present when the segment includes the last layer */
   prediction?: Prediction;
+  /** Whether this segment completes the model */
+  isFinalSegment: boolean;
   /** Proof of computation */
   proof: InferenceProof;
   /** Execution timing */
@@ -55,7 +57,10 @@ class NeuralLayer {
   }
 
   /**
-   * Execute forward pass through this layer
+   * Execute forward pass through this layer, returning the RAW pre-activation
+   * output. The pre-activation is the proof material the server verifies via
+   * secret projection checks; the activation is applied separately (and
+   * re-applied server-side) before feeding the next layer.
    */
   forward(input: Float32Array): Float32Array {
     const startTime = performance.now();
@@ -78,9 +83,6 @@ class NeuralLayer {
       default:
         throw new Error(`Unsupported layer type: ${this.type}`);
     }
-
-    // Apply activation
-    output = this.applyActivation(output);
 
     const endTime = performance.now();
     this.lastExecutionTime = endTime - startTime;
@@ -207,7 +209,7 @@ class NeuralLayer {
   /**
    * Apply activation function
    */
-  private applyActivation(data: Float32Array): Float32Array {
+  applyActivation(data: Float32Array): Float32Array {
     switch (this.activation) {
       case 'relu':
         return data.map((x) => Math.max(0, x));
@@ -272,10 +274,45 @@ export class ShardInferenceEngine {
   }
 
   /**
-   * Execute model shards on input data
+   * Verify a shard's integrity: SHA-256 over the exact float32 wire bytes
+   * (weights then biases) must match the checksum pinned in the model
+   * manifest. Rejects tampered or substituted weights before any compute.
+   */
+  async verifyShardChecksum(shard: ModelShard): Promise<boolean> {
+    if (!shard.checksum || !shard.layers.length) {
+      return true; // no checksum to verify against
+    }
+    const layer = shard.layers[0];
+    const weights = new Float32Array(layer.weights);
+    const biases = new Float32Array(layer.biases);
+    const bytes = new Uint8Array(weights.byteLength + biases.byteLength);
+    bytes.set(new Uint8Array(weights.buffer), 0);
+    bytes.set(new Uint8Array(biases.buffer), weights.byteLength);
+    const digest = await crypto.subtle.digest('SHA-256', bytes.buffer);
+    const hex = Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+    return hex === shard.checksum;
+  }
+
+  /**
+   * Execute the assigned segment of model layers on the input activation.
+   *
+   * In the distributed pipeline the input is either the raw sample (segment
+   * start 0) or the verified activation handed over from a previous solver.
+   * Produces pre-activation outputs per layer plus a commitment proof the
+   * server can verify without re-running the computation.
    */
   async executeShards(task: ShardTask): Promise<ShardExecutionResult> {
     const totalStartTime = performance.now();
+
+    // Integrity check before executing anything
+    for (const shard of task.shards) {
+      const ok = await this.verifyShardChecksum(shard);
+      if (!ok) {
+        throw new Error(`Shard ${shard.name} failed checksum verification`);
+      }
+    }
 
     // Load shards
     this.loadShards(task.shards);
@@ -283,10 +320,15 @@ export class ShardInferenceEngine {
     // Decode input data
     const input = this.decodeInput(task.inputData, task.inputShape);
 
-    // Execute layers
-    const layerOutputs: Float32Array[] = [];
+    const segmentStart = task.segmentStart ?? 0;
+    const totalLayers = task.totalLayers ?? this.layers.length;
+    const isFinalSegment = segmentStart + this.layers.length >= totalLayers;
+
+    // Execute layers, keeping pre-activations (proof material) and feeding
+    // post-activations forward
+    const preActivations: Float32Array[] = [];
     const layerTimes: number[] = [];
-    let currentOutput = input;
+    let current = input;
 
     for (let i = 0; i < this.layers.length; i++) {
       const layer = this.layers[i];
@@ -295,38 +337,38 @@ export class ShardInferenceEngine {
       );
 
       const layerStartTime = performance.now();
-      currentOutput = layer.forward(currentOutput);
+      const pre = layer.forward(current);
+      current = layer.applyActivation(pre);
       const layerEndTime = performance.now();
 
-      layerOutputs.push(currentOutput);
+      preActivations.push(pre);
       layerTimes.push(layerEndTime - layerStartTime);
 
-      // Report progress if callback provided
       if (task.onProgress) {
         task.onProgress((i + 1) / this.layers.length);
       }
     }
 
-    // Generate prediction from final output
-    const prediction = this.generatePrediction(
-      currentOutput,
-      task.labels || []
-    );
+    // Prediction only exists when this segment completes the model
+    let prediction: Prediction | undefined;
+    if (isFinalSegment) {
+      prediction = this.generatePrediction(current, task.labels || []);
+    }
 
-    // Generate proof of computation
     const proof = await this.generateProof(
       task.taskId,
       task.sampleId,
-      task.expectedLayers,
-      layerOutputs,
+      segmentStart,
+      preActivations,
       prediction
     );
 
     const totalEndTime = performance.now();
 
     return {
-      layerOutputs,
+      layerOutputs: preActivations,
       prediction,
+      isFinalSegment,
       proof,
       timing: {
         totalMs: totalEndTime - totalStartTime,
@@ -445,29 +487,47 @@ export class ShardInferenceEngine {
   }
 
   /**
-   * Generate cryptographic proof of inference computation
+   * Generate cryptographic proof of inference computation.
+   *
+   * Commits to each layer's pre-activation output and binds the commitments
+   * to this exact task/sample/segment, so the proof can be neither replayed
+   * nor detached from the submitted data.
    */
   private async generateProof(
     taskId: string,
     sampleId: string,
-    expectedLayers: number,
-    layerOutputs: Float32Array[],
-    prediction: Prediction
+    segmentStart: number,
+    preActivations: Float32Array[],
+    prediction?: Prediction
   ): Promise<InferenceProof> {
-    // Hash each layer output
     const outputHashes: string[] = [];
-    for (const output of layerOutputs) {
+    for (const output of preActivations) {
       const hash = await this.hashTensor(output);
       outputHashes.push(hash);
     }
 
-    // Generate combined proof hash
+    // Canonical prediction hash with fixed-point formatting (matches the
+    // server's :.4f formatting exactly)
+    let predictionHash = '';
+    if (prediction) {
+      const topK = prediction.topK
+        .map((item) => `${item.label}:${item.confidence.toFixed(4)}`)
+        .join(',');
+      const payload = [
+        prediction.label,
+        prediction.confidence.toFixed(4),
+        topK,
+      ].join('|');
+      predictionHash = await hashData(payload);
+    }
+
     const proofData = [
       taskId,
       sampleId,
-      expectedLayers.toString(),
+      segmentStart.toString(),
+      preActivations.length.toString(),
       ...outputHashes,
-      JSON.stringify(prediction),
+      predictionHash,
     ].join(':');
 
     const proofHash = await hashData(proofData);
@@ -475,9 +535,11 @@ export class ShardInferenceEngine {
     return {
       taskId,
       sampleId,
-      layerCount: layerOutputs.length,
+      segmentStart,
+      layerCount: preActivations.length,
+      preActivations: preActivations.map((pre) => Array.from(pre)),
       outputHashes,
-      predictionHash: await hashData(JSON.stringify(prediction)),
+      predictionHash,
       proofHash,
       timestamp: Date.now(),
     };

@@ -20,6 +20,7 @@ from app.schemas.captcha import (
     VerificationInfo,
     VerificationDisplayData,
     VerificationOption,
+    PipelineProgressInfo,
 )
 from app.schemas.verification import (
     VerificationSubmitRequest,
@@ -49,6 +50,7 @@ __all__ = [
     "VerificationInfo",
     "VerificationDisplayData",
     "VerificationOption",
+    "PipelineProgressInfo",
     "VerificationSubmitRequest",
     "VerificationSubmitResponse",
     "VerificationData",

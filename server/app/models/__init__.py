@@ -13,6 +13,7 @@ from app.models.verification import Verification
 from app.models.golden_dataset import GoldenDataset
 from app.models.reputation import ReputationScore
 from app.models.domain_config import DomainConfig
+from app.models.pipeline_run import PipelineRun
 
 __all__ = [
     "Base",
@@ -27,4 +28,5 @@ __all__ = [
     "GoldenDataset",
     "ReputationScore",
     "DomainConfig",
+    "PipelineRun",
 ]

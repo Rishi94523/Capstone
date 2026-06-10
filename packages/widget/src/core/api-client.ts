@@ -115,7 +115,7 @@ export class ApiClient {
   async submitInferenceProof(
     sessionId: string,
     taskId: string,
-    prediction: Prediction,
+    prediction: Prediction | null,
     proof: InferenceProof,
     timing: TimingData
   ): Promise<SubmitResponse> {
@@ -124,15 +124,19 @@ export class ApiClient {
       body: JSON.stringify({
         session_id: sessionId,
         task_id: taskId,
-        prediction: {
-          label: prediction.label,
-          confidence: prediction.confidence,
-          top_k: prediction.topK,
-        },
+        prediction: prediction
+          ? {
+              label: prediction.label,
+              confidence: prediction.confidence,
+              top_k: prediction.topK,
+            }
+          : null,
         proof: {
           task_id: proof.taskId,
           sample_id: proof.sampleId,
+          segment_start: proof.segmentStart,
           layer_count: proof.layerCount,
+          pre_activations: proof.preActivations,
           output_hashes: proof.outputHashes,
           prediction_hash: proof.predictionHash,
           proof_hash: proof.proofHash,

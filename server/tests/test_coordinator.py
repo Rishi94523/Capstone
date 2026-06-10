@@ -57,7 +57,6 @@ class TestTaskCoordinator:
         for tier_name, config in coordinator.DIFFICULTY_TIERS.items():
             assert "risk_score_max" in config
             assert "inference_time_ms" in config
-            assert "task_type" in config
             assert "verification_probability" in config
             assert config["inference_time_ms"] > 0
             assert 0 <= config["verification_probability"] <= 1

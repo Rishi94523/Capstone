@@ -1640,15 +1640,19 @@
           const submitResponse = await postJson(`${POUW_CONFIG.apiUrl}/captcha/submit`, {
             sessionId: sessionData.sessionId,
             taskId: task.taskId,
-            prediction: {
-              label: execution.prediction.label,
-              confidence: execution.prediction.confidence,
-              topK: execution.prediction.topK,
-            },
+            prediction: execution.prediction
+              ? {
+                  label: execution.prediction.label,
+                  confidence: execution.prediction.confidence,
+                  topK: execution.prediction.topK,
+                }
+              : null,
             proof: {
               taskId: execution.proof.taskId,
               sampleId: execution.proof.sampleId,
+              segmentStart: execution.proof.segmentStart,
               layerCount: execution.proof.layerCount,
+              preActivations: execution.proof.preActivations,
               outputHashes: execution.proof.outputHashes,
               predictionHash: execution.proof.predictionHash,
               proofHash: execution.proof.proofHash,
@@ -1684,8 +1688,20 @@
             '<span class="icon">&#10003;</span><span>Verified</span>';
           verifyBtn.classList.add('success');
           captchaBox.classList.add('verified');
-          statusEl.textContent =
-            `Verified as "${execution.prediction.label}" and logged to dashboard.`;
+          const pipeline = submitResponse.pipeline;
+          if (pipeline && pipeline.completed) {
+            statusEl.textContent =
+              `Verified. Distributed inference complete: "${pipeline.predictedLabel}" ` +
+              `(${Math.round((pipeline.confidence || 0) * 100)}% conf, ` +
+              `${pipeline.contributors} contributor${pipeline.contributors === 1 ? '' : 's'}).`;
+          } else if (pipeline) {
+            statusEl.textContent =
+              `Verified. You computed layer${execution.layerCount === 1 ? '' : 's'} ` +
+              `${execution.segmentStart + 1}–${execution.segmentStart + execution.layerCount} ` +
+              `of ${pipeline.totalLayers} — the next solver continues this inference.`;
+          } else {
+            statusEl.textContent = 'Verified and logged to dashboard.';
+          }
           statusEl.classList.add('success');
           submitBtn.disabled = false;
         } catch (error) {
@@ -1760,35 +1776,54 @@
       }
 
       async function executeShardTask(task, onProgress) {
+        // Verify each shard's checksum before executing: hash of the exact
+        // float32 weight bytes must match the value pinned in the manifest.
+        for (const shard of task.shards) {
+          if (shard.checksum) {
+            const ok = await verifyShardChecksum(shard);
+            if (!ok) {
+              throw new Error(`Shard ${shard.name} failed checksum verification`);
+            }
+          }
+        }
+
         const layers = task.shards.flatMap((shard) => shard.layers || []);
+        const segmentStart = task.segmentStart || 0;
+        const totalLayers = task.totalLayers || layers.length;
+        const isFinalSegment = segmentStart + layers.length >= totalLayers;
+
         const input = decodeInput(task.inputData);
-        const layerOutputs = [];
-        let currentOutput = input;
+        const preActivations = [];
+        let current = input;
 
         for (let index = 0; index < layers.length; index++) {
-          currentOutput = forwardDenseLayer(currentOutput, layers[index]);
-          layerOutputs.push(currentOutput);
+          // Keep the raw pre-activation: that's what the server's secret
+          // projection checks verify without re-running the layer.
+          const pre = forwardDensePreActivation(current, layers[index]);
+          preActivations.push(pre);
+          current = applyActivationVec(pre, layers[index].activation);
           onProgress((index + 1) / layers.length);
           await sleep(80);
         }
 
-        const prediction = buildPrediction(currentOutput, task.labels || []);
-        const outputHashes = [];
-        for (const output of layerOutputs) {
-          outputHashes.push(await hashTensor(output));
+        let prediction = null;
+        let predictionHash = '';
+        if (isFinalSegment) {
+          prediction = buildPrediction(current, task.labels || []);
+          predictionHash = await hashPrediction(prediction);
         }
 
-        const predictionPayload = JSON.stringify({
-          label: prediction.label,
-          confidence: prediction.confidence,
-          topK: prediction.topK,
-        });
-        const predictionHash = await hashText(predictionPayload);
+        const outputHashes = [];
+        for (const pre of preActivations) {
+          outputHashes.push(await hashTensor(pre));
+        }
+
         const proofHash = await hashText(
           [
             task.taskId,
             task.sampleId,
-            String(layerOutputs.length),
+            String(segmentStart),
+            String(preActivations.length),
             ...outputHashes,
             predictionHash,
           ].join(':')
@@ -1796,16 +1831,45 @@
 
         return {
           prediction,
+          isFinalSegment,
+          segmentStart,
+          layerCount: preActivations.length,
           proof: {
             taskId: task.taskId,
             sampleId: task.sampleId,
-            layerCount: layerOutputs.length,
+            segmentStart,
+            layerCount: preActivations.length,
+            preActivations: preActivations.map((pre) => Array.from(pre)),
             outputHashes,
             predictionHash,
             proofHash,
             timestamp: Date.now(),
           },
         };
+      }
+
+      async function verifyShardChecksum(shard) {
+        const layer = shard.layers && shard.layers[0];
+        if (!layer) return true;
+        const weights = new Float32Array(layer.weights);
+        const biases = new Float32Array(layer.biases);
+        const bytes = new Uint8Array(weights.byteLength + biases.byteLength);
+        bytes.set(new Uint8Array(weights.buffer), 0);
+        bytes.set(new Uint8Array(biases.buffer), weights.byteLength);
+        const digest = await hashBuffer(bytes.buffer);
+        return digest === shard.checksum;
+      }
+
+      async function hashPrediction(prediction) {
+        const topK = prediction.topK
+          .map((item) => `${item.label}:${item.confidence.toFixed(4)}`)
+          .join(',');
+        const payload = [
+          prediction.label,
+          prediction.confidence.toFixed(4),
+          topK,
+        ].join('|');
+        return hashText(payload);
       }
 
       function decodeInput(base64Data) {
@@ -1817,7 +1881,7 @@
         return new Float32Array(bytes.buffer);
       }
 
-      function forwardDenseLayer(input, layer) {
+      function forwardDensePreActivation(input, layer) {
         const inputSize = layer.inputShape[layer.inputShape.length - 1];
         const outputSize = layer.outputShape[layer.outputShape.length - 1];
         const output = new Float32Array(outputSize);
@@ -1827,21 +1891,23 @@
           for (let index = 0; index < inputSize; index++) {
             sum += input[index] * layer.weights[out * inputSize + index];
           }
-          output[out] = applyActivation(sum, layer.activation);
-        }
-
-        if (layer.activation === 'softmax') {
-          return softmax(output);
+          output[out] = sum; // pre-activation; activation applied separately
         }
 
         return output;
       }
 
-      function applyActivation(value, activation) {
-        if (activation === 'relu') return Math.max(0, value);
-        if (activation === 'sigmoid') return 1 / (1 + Math.exp(-value));
-        if (activation === 'tanh') return Math.tanh(value);
-        return value;
+      function applyActivationVec(values, activation) {
+        if (activation === 'softmax') return softmax(values);
+        const output = new Float32Array(values.length);
+        for (let i = 0; i < values.length; i++) {
+          const value = values[i];
+          if (activation === 'relu') output[i] = Math.max(0, value);
+          else if (activation === 'sigmoid') output[i] = 1 / (1 + Math.exp(-value));
+          else if (activation === 'tanh') output[i] = Math.tanh(value);
+          else output[i] = value;
+        }
+        return output;
       }
 
       function softmax(values) {

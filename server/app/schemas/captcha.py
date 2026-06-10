@@ -60,6 +60,11 @@ class ModelShardInfo(APIModel):
     input_shape: List[int]
     output_shape: List[int]
     activation: Optional[str] = None
+    checksum: str = Field(
+        default="",
+        description="SHA-256 over the layer's float32 wire bytes; clients "
+        "verify this before executing",
+    )
     layers: List[NeuralLayerConfig] = Field(default_factory=list)
 
 
@@ -77,15 +82,24 @@ class TaskInfo(APIModel):
 class ShardTaskInfo(APIModel):
     task_id: str
     sample_id: str
+    run_id: str = Field(
+        default="",
+        description="Distributed pipeline run this segment belongs to",
+    )
     model_name: str
     model_version: str
     shards: List[ModelShardInfo]
     input_data: str
     input_shape: List[int]
+    segment_start: int = Field(
+        default=0,
+        description="Index of the first layer in this segment; >0 means the "
+        "input is the verified activation handed over from a previous solver",
+    )
+    total_layers: int = Field(default=0, description="Total layers in the model")
     expected_layers: int
     difficulty: str
     expected_time_ms: int
-    ground_truth_key: str
     labels: List[str]
     model_checksum: str
 
@@ -120,9 +134,20 @@ class ProofOfWorkData(APIModel):
 class InferenceProofData(APIModel):
     task_id: str
     sample_id: str
+    segment_start: int = Field(default=0, ge=0)
     layer_count: int = Field(..., ge=1)
+    pre_activations: List[List[float]] = Field(
+        ...,
+        min_length=1,
+        description="Pre-activation output vector of each computed layer; "
+        "verified server-side via secret projection checks without "
+        "re-running the computation",
+    )
     output_hashes: List[str] = Field(..., min_length=1)
-    prediction_hash: str
+    prediction_hash: str = Field(
+        default="",
+        description="Hash of the prediction; only set on final segments",
+    )
     proof_hash: str
     timestamp: int
 
@@ -138,7 +163,11 @@ class TimingData(APIModel):
 class CaptchaSubmitRequest(APIModel):
     session_id: str
     task_id: str
-    prediction: PredictionData
+    prediction: Optional[PredictionData] = Field(
+        default=None,
+        description="Only present when the segment includes the final layer; "
+        "mid-pipeline contributors have no prediction",
+    )
     proof_of_work: Optional[ProofOfWorkData] = None
     proof: Optional[InferenceProofData] = None
     timing: TimingData
@@ -170,12 +199,25 @@ class VerificationInfo(APIModel):
     options: List[VerificationOption]
 
 
+class PipelineProgressInfo(APIModel):
+    """Progress of the distributed inference run the user contributed to."""
+
+    run_id: str
+    layers_done: int
+    total_layers: int
+    completed: bool
+    predicted_label: Optional[str] = None
+    confidence: Optional[float] = None
+    contributors: int = 1
+
+
 class CaptchaSubmitResponse(APIModel):
     success: bool
     requires_verification: bool
     verification: Optional[VerificationInfo] = None
     captcha_token: Optional[str] = None
     expires_at: Optional[datetime] = None
+    pipeline: Optional[PipelineProgressInfo] = None
 
 
 class CaptchaValidateResponse(APIModel):

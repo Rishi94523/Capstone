@@ -154,9 +154,39 @@ async def health_check():
 # Ready check endpoint
 @app.get("/ready", tags=["Health"])
 async def ready_check():
-    """Readiness check for Kubernetes."""
-    # TODO: Add database and Redis connectivity checks
-    return {"status": "ready"}
+    """Readiness check: verifies DB, Redis and model store connectivity."""
+    from sqlalchemy import text
+    from app.models.base import engine
+    from app.utils.redis_client import get_redis
+    from app.ml.model_store import get_model_store
+
+    checks = {}
+
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception as exc:
+        checks["database"] = f"error: {exc}"
+
+    try:
+        redis = await get_redis()
+        await redis.ping()
+        checks["redis"] = "ok"
+    except Exception as exc:
+        checks["redis"] = f"error: {exc}"
+
+    try:
+        models = get_model_store().list_models()
+        checks["models"] = f"ok ({len(models)} loaded)"
+    except Exception as exc:
+        checks["models"] = f"error: {exc}"
+
+    all_ok = all(v.startswith("ok") for v in checks.values())
+    return JSONResponse(
+        status_code=200 if all_ok else 503,
+        content={"status": "ready" if all_ok else "degraded", "checks": checks},
+    )
 
 
 # Include API routers

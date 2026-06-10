@@ -20,6 +20,8 @@ export interface ModelShard {
   outputShape: number[];
   /** Activation function */
   activation?: string;
+  /** SHA-256 over the layer's float32 wire bytes; verified before execution */
+  checksum?: string;
   /** Layer configurations for shard execution */
   layers: NeuralLayerConfig[];
 }
@@ -64,14 +66,20 @@ export interface ShardTask {
   inputShape: number[];
   /** Number of layers client should compute */
   expectedLayers: number;
-  /** Difficulty level */
-  difficulty: 'easy' | 'medium' | 'hard';
+  /** Index of the first layer in this segment (distributed pipeline) */
+  segmentStart: number;
+  /** Total layers in the model */
+  totalLayers: number;
+  /** Pipeline run this segment contributes to */
+  runId?: string;
+  /** Difficulty tier */
+  difficulty: string;
   /** Expected computation time in ms */
   expectedTimeMs: number;
-  /** Ground truth key for validation */
-  groundTruthKey: string;
   /** Class labels for prediction */
   labels: string[];
+  /** Model checksum (hash of layer checksums) */
+  modelChecksum?: string;
   /** Progress callback */
   onProgress?: (progress: number) => void;
 }
@@ -84,13 +92,20 @@ export interface InferenceProof {
   taskId: string;
   /** Sample ID */
   sampleId: string;
+  /** First layer index of the computed segment */
+  segmentStart: number;
   /** Number of layers computed */
   layerCount: number;
-  /** Hashes of each layer output */
+  /**
+   * Pre-activation output of each computed layer. The server verifies these
+   * with secret projection checks without re-running the computation.
+   */
+  preActivations: number[][];
+  /** Commitment hashes of each pre-activation vector */
   outputHashes: string[];
-  /** Hash of prediction */
+  /** Hash of prediction (empty for mid-pipeline segments) */
   predictionHash: string;
-  /** Combined proof hash */
+  /** Combined proof hash binding everything to this task */
   proofHash: string;
   /** Timestamp when proof was generated */
   timestamp: number;
@@ -345,12 +360,29 @@ export interface InitResponse {
   expiresAt: string;
 }
 
+export interface PipelineProgress {
+  /** Distributed run identifier */
+  runId: string;
+  /** Layers completed so far across all contributors */
+  layersDone: number;
+  /** Total layers in the model */
+  totalLayers: number;
+  /** Whether the run finished with this submission */
+  completed: boolean;
+  /** Final label (only when completed) */
+  predictedLabel?: string;
+  confidence?: number;
+  /** Number of solvers whose segments were pieced together */
+  contributors: number;
+}
+
 export interface SubmitResponse {
   success: boolean;
   requiresVerification: boolean;
   verification?: VerificationData;
   captchaToken?: string;
   expiresAt?: string;
+  pipeline?: PipelineProgress;
 }
 
 export interface VerifyResponse {
