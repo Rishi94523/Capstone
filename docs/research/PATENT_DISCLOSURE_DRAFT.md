@@ -35,28 +35,43 @@ labels and golden dataset entries.
 
 ## Potentially Novel Combination
 
-The projection equation itself is prior art-adjacent. The inventive combination
-is the end-to-end use of verified browser ML shards as a CAPTCHA/rate-limit
-primitive that converts automation pressure into useful inference and labeling
-work.
+The projection equation itself is prior art-adjacent (Freivalds-style
+verification). The inventive combination is the end-to-end use of verified
+browser ML shards as a CAPTCHA/rate-limit primitive that converts automation
+pressure into useful inference and labeling work, with a verifier that is
+generic over affine layer operators: dense layers verify via `s = W·r`,
+convolutional layers via `s = conv_transpose(r, kernels)` — both precomputed
+once per model version — so heterogeneous architectures (MLPs, CNNs,
+attention/matmul blocks) plug into the same distributed pipeline without
+changing the verification protocol.
 
 ## Important Variants To Claim
 
-- Different model types and dense layer sizes.
+- Affine-operator-generic verification: dense, conv2d (transposed-convolution
+  projections), attention/matmul projections, embeddings-as-matmul.
+- Server-replayed post-op chains (activation, pooling, flatten) between
+  provable layers, preserving chain of custody at O(n) cost.
+- Multi-architecture model store with per-run model rotation; runs are
+  version-isolated so retraining never corrupts in-flight pipelines.
+- Different model types and layer sizes.
 - Risk-based shard sizing.
 - Segment handoff through verified activation storage.
-- Per-layer checksum-pinned shard delivery.
+- Per-layer checksum-pinned shard delivery (wire-byte checksums valid for any
+  layer type's canonical flattening).
 - Proof binding to task id, sample id, model checksum, and segment index.
 - One-time token validation with private site secrets.
 - Human verification triggering based on risk tier or model completion.
+- Human-feedback retraining loop: golden-label consensus → fine-tune →
+  version bump rotates checksums and projections.
 - Economic dashboard measuring bot work converted into useful value.
 
 ## Evidence And Prototype
 
 - Working FastAPI backend.
-- Browser TypeScript widget and SDK.
-- `mnist-tiny` trained dense model with real layer checksums.
-- Local evaluator in `scripts/evaluate_pouw.py`.
+- Browser TypeScript widget and SDK with dense and conv2d execution.
+- `mnist-tiny` (dense MLP, 98.09%) and `mnist-cnn` (conv net, 98.46%) trained
+  models with real layer checksums, both served through the same pipeline.
+- Local multi-architecture evaluator in `scripts/evaluate_pouw.py`.
 - Latest evidence report in `docs/evaluation/latest.md`.
 
 ## Public Disclosure Caution
